@@ -1,0 +1,253 @@
+Lisa: [curious] So Marc, I've been seeing this term everywhere lately—vibecoding. People either love it or think it's going to destroy software development. What's the deal?
+
+Marc: [thoughtful] Vibecoding is... interesting. The term came from Andrej Karpathy, one of the OpenAI co-founders. He described it as fully giving in to the vibes, embracing the flow, and basically forgetting the code even exists.
+
+Sven: [casual] So just yelling at ChatGPT until something works? I mean, that's basically what I do for my assignments.
+
+Lisa: [warm] Ha! But there's something appealing about it, right? You describe what you want, the AI generates code, you tweak it...
+
+Marc: [neutral] And eventually something works. Yes. It's fast, it's fun, and honestly? For a quick prototype or a weekend project, it's fantastic.
+
+Sven: [skeptical] Wait, I'm sensing a "but" coming.
+
+Marc: [emphatic] But! And this is a big but—what happens when your project grows? When you have ten features built on top of each other? When someone asks why you made a certain decision?
+
+Lisa: [curious] The house of cards problem.
+
+Marc: [neutral] Exactly. You end up with what developers call "patchwork quilts"—code that kind of works but nobody really understands, including the AI that wrote it.
+
+Sven: [surprised] Hold on. The AI doesn't understand its own code?
+
+Marc: [thoughtful] Not in the way you might think. Each conversation with an AI starts fresh. It doesn't remember what it built yesterday. So every session, you're re-explaining context, and the AI might make different choices.
+
+Lisa: [curious] So there's no institutional memory.
+
+Marc: [emphatic] None. And that's where this new approach comes in—spec-driven development.
+
+Sven: [skeptical] Okay, that sounds very... corporate. What does it actually mean?
+
+Marc: [neutral] The basic idea is: before you write any code, you write a specification. A document that describes what you want to build and why.
+
+Sven: [casual] So... documentation? We're supposed to do that anyway.
+
+Lisa: [warm] That's what I thought too! But there's a twist, right Marc?
+
+Marc: [thoughtful] The twist is that the specification isn't just documentation—it becomes the source of truth. You don't throw it away after you start coding. The spec directly drives the implementation.
+
+Sven: [skeptical] I don't get it. How is writing a document before coding any different from... writing a document before coding?
+
+Marc: [emphatic] Because with AI, you can actually enforce it. The AI reads your spec, generates a plan, breaks it into tasks, and then implements exactly what you specified. If you didn't spec it, it doesn't get built.
+
+Lisa: [surprised] Oh! So it's like a contract with the AI.
+
+Marc: [warm] Precisely. And there's this toolkit from GitHub called Spec-Kit that formalizes the whole workflow.
+
+Sven: [casual] GitHub made this? The same GitHub that's pushing Copilot everywhere?
+
+Marc: [neutral] The same one. It's got like sixty-seven thousand stars now. Clearly people are interested.
+
+Lisa: [curious] Walk us through it. How does it actually work?
+
+Marc: [thoughtful] Okay, so there are five main steps. First, you create what they call a constitution.
+
+Sven: [surprised] A constitution? Like, for a country?
+
+Marc: [neutral] Kind of! It's a document that defines your project's principles. Things like "we prioritize privacy" or "we keep things simple" or "we always write tests first."
+
+Lisa: [curious] And the AI reads this?
+
+Marc: [emphatic] Every time. So when it makes decisions during implementation, it checks against those principles. It's like giving the AI a value system.
+
+Sven: [thoughtful] Huh. That's actually clever. So it won't add a bunch of tracking code if your constitution says privacy-first.
+
+Marc: [warm] Exactly. Then step two: you specify the feature. But here's the key—you focus on the what and why, not the how.
+
+Lisa: [curious] Can you give an example?
+
+Marc: [neutral] Sure. Instead of saying "create a React component with useState hooks that fetches from this API," you'd say "users should be able to see their recent orders so they can track deliveries."
+
+Sven: [skeptical] But that's so vague! How does the AI know what to build?
+
+Marc: [thoughtful] That's actually the point. The vagueness forces you to think about what you actually need, not how to implement it. The implementation details come later, in the planning phase.
+
+Lisa: [warm] So you're separating concerns.
+
+Marc: [emphatic] Exactly. First you nail down requirements. Then you pick technology. Then you break it into tasks. Then you implement.
+
+Sven: [skeptical] Okay but this sounds a lot like waterfall. Remember waterfall? The thing that famously doesn't work?
+
+Lisa: [curious] Oh, that's interesting. Is this just waterfall with AI sprinkled on top?
+
+Marc: [thoughtful] This is the number one criticism, actually. And it's a fair point.
+
+Sven: [emphatic] Because waterfall failed for a reason! You can't know everything upfront. Requirements change. You learn things during implementation.
+
+Marc: [neutral] All true. But here's the counter-argument: with AI, you can regenerate implementation in minutes, not months. If your spec is wrong, you update it and regenerate.
+
+Lisa: [surprised] So the spec is a living document, not carved in stone.
+
+Marc: [warm] That's the theory. In practice... well, it requires discipline. A lot of teams forget to update their specs after changes.
+
+Sven: [casual] So it's not waterfall, it's waterfall with a fast-forward button.
+
+Marc: [thoughtful] That's... actually a pretty good way to put it.
+
+Lisa: [curious] Let me ask the obvious question. Why would I bother with all this when vibecoding is so much faster?
+
+Sven: [emphatic] Yeah! I can build something in an afternoon with vibecoding. Writing specs sounds like it takes forever.
+
+Marc: [neutral] For small stuff? You probably shouldn't bother. A one-page script, a quick prototype, a bug fix—just vibe it.
+
+Lisa: [curious] So when does spec-driven make sense?
+
+Marc: [thoughtful] When you're building something with multiple features. When other people will work on it. When you need to explain why you made certain choices. When the project will live for more than a few weeks.
+
+Sven: [skeptical] But I've built some pretty big things with vibecoding. It works fine.
+
+Marc: [neutral] Has anyone else ever had to maintain that code?
+
+Sven: [casual] ...I mean, not yet.
+
+Lisa: [warm] Ha! There it is.
+
+Marc: [emphatic] Here's the thing. Simon Willison, who's been writing about AI development for years, has this golden rule: never commit code you can't explain to someone else.
+
+Sven: [thoughtful] Okay, that's fair.
+
+Marc: [neutral] With vibecoding, you often end up with code that works but you don't fully understand. You can't explain why it does certain things because, well, you didn't design it. You just prompted until it worked.
+
+Lisa: [curious] And with spec-driven, you have that paper trail.
+
+Marc: [warm] Exactly. Someone new joins the project, they can read the specs, understand the reasoning, see the decisions that were made.
+
+Sven: [skeptical] But what if my spec is wrong? What if I spec something and then realize during implementation that it's a bad idea?
+
+Marc: [thoughtful] That happens! And there's actually a step in the workflow for it—clarification. The AI asks you questions about ambiguous parts of your spec before planning begins.
+
+Lisa: [surprised] The AI quizzes you?
+
+Marc: [neutral] Kind of. It's like a code review, but for requirements. It might ask "should healthcare initiatives show opening hours?" or "is there a difference between professional and volunteer services?"
+
+Sven: [casual] So it's finding the holes in my thinking.
+
+Marc: [emphatic] Exactly. Things you might not have considered until you were deep in implementation.
+
+Lisa: [curious] Okay, let's talk about the problems. Because nothing's perfect, right?
+
+Marc: [thoughtful] Right. There are some real gaps.
+
+Sven: [skeptical] Called it.
+
+Marc: [neutral] First big one: context windows. These AI models can only hold so much information at once. A big spec plus a big plan plus your existing codebase... it might not all fit.
+
+Lisa: [curious] So what happens then?
+
+Marc: [thoughtful] You have to be strategic. Work on one feature at a time. Keep specs concise. The tools don't really help with this—it's on you to manage.
+
+Sven: [skeptical] What about when multiple people are working on specs? Like, I'm building feature A and you're building feature B?
+
+Marc: [emphatic] That's actually a huge unsolved problem. Spec-Kit is really designed for one person working on one feature.
+
+Lisa: [surprised] Wait, really? So it doesn't scale to teams?
+
+Marc: [neutral] Not well. Not yet. If my feature depends on your feature, there's no built-in way to manage that. No dependency tracking between specs.
+
+Sven: [thoughtful] So you could end up with two features that don't work together.
+
+Marc: [warm] Exactly. The honest answer is: for larger projects with parallel development, you need additional tooling and processes that Spec-Kit doesn't provide.
+
+Lisa: [curious] What kind of tooling?
+
+Marc: [thoughtful] Some people are experimenting with contracts—like OpenAPI specs that define interfaces between features. So you don't depend on someone else's code, you depend on an agreed interface.
+
+Sven: [skeptical] That sounds like microservices architecture.
+
+Marc: [neutral] It is, kind of. Same principles. Define boundaries, agree on contracts, build independently.
+
+Lisa: [curious] Is anyone building these tools?
+
+Marc: [thoughtful] Not that I've seen. It's an opportunity. Someone could build a spec coordinator that analyzes all in-flight specs and flags conflicts.
+
+Sven: [casual] Like a project manager, but it's an AI.
+
+Marc: [warm] Exactly! It wouldn't implement anything, just analyze and warn. "Hey, these two features are touching the same database table. You should talk."
+
+Lisa: [curious] That would be useful. Okay, let me ask the philosophical question. If the AI is writing all the code, am I still a developer?
+
+Sven: [emphatic] Thank you! I've been wondering this.
+
+Marc: [thoughtful] You're still making all the important decisions. What to build. Why. What trade-offs to accept. You're reviewing everything, testing, making judgment calls.
+
+Lisa: [curious] So the job changes, but doesn't disappear.
+
+Marc: [neutral] The shift is from "writing code" to "specifying intent and reviewing output." Whether that's better or worse depends on who you ask.
+
+Sven: [skeptical] But here's what worries me. I'm learning to code. If I just use AI for everything, am I actually learning anything?
+
+Marc: [thoughtful] That's a real tension. There's this paradox people talk about: AI coding tools work best for experienced developers and worst for beginners.
+
+Lisa: [surprised] Wait, that's backwards from what you'd expect!
+
+Marc: [emphatic] Right? You'd think beginners would benefit most. But experienced developers can spot when the AI is wrong. They know what good code looks like. They can ask better questions.
+
+Sven: [thoughtful] And beginners just... accept whatever the AI gives them?
+
+Marc: [neutral] Often, yes. They don't have the knowledge to evaluate it. So they might learn bad patterns, or worse, not really learn at all.
+
+Lisa: [curious] So what's the advice for someone like Sven who's still learning?
+
+Marc: [warm] Use the AI to learn faster, not to skip learning. When it generates code, read it. Understand it. Ask it to explain. Use it like a teaching assistant, not a replacement for understanding.
+
+Sven: [casual] So... don't just accept the vibes.
+
+Marc: [thoughtful] Don't just accept the vibes.
+
+Lisa: [curious] Alright, let's bring this back. Someone listening to this, they're curious about spec-driven development. What should they actually do?
+
+Marc: [neutral] First, try it on a real project. Not a toy example—something you actually care about. Write a constitution, specify a feature, see how it feels.
+
+Sven: [skeptical] And if it feels like too much overhead?
+
+Marc: [warm] Then maybe spec-driven isn't for that project. Or for you. And that's fine! It's a tool, not a religion.
+
+Lisa: [curious] What about the Spec-Kit specifically?
+
+Marc: [neutral] You can install it with a single command. It'll set up the folder structure and give you the slash commands. Takes maybe five minutes to get started.
+
+Sven: [casual] And if I don't like it, I can just delete the folders.
+
+Marc: [warm] Exactly. Low commitment.
+
+Lisa: [thoughtful] Marc, final question. Is this the future of software development? Or just another methodology that'll fade in a few years?
+
+Marc: [thoughtful] Honest answer? I don't know. Every few years there's a new methodology that promises to fix software development. Most fade away.
+
+Sven: [skeptical] So it might be a fad.
+
+Marc: [neutral] It might. But the underlying trend—AI writing more code—that seems durable. Whether spec-driven is the right framing, or whether something better comes along, we'll see.
+
+Lisa: [warm] So learn the principles, stay flexible on tooling.
+
+Marc: [emphatic] Exactly. Understand why spec-driven works when it works. Understand its limitations. Then make your own choices.
+
+Sven: [thoughtful] You know what, that's actually... reasonable advice.
+
+Lisa: [warm] Wait, did Sven just agree with something?
+
+Sven: [casual] Don't get used to it.
+
+Lisa: [curious] Alright, so to recap: vibecoding is great for quick stuff, spec-driven is better for bigger projects, both have trade-offs, and nobody knows for sure where this is all heading.
+
+Marc: [warm] That's about right.
+
+Sven: [casual] And I should probably actually read the code the AI writes.
+
+Marc: [emphatic] You should definitely read the code the AI writes.
+
+Lisa: [warm] Thanks Marc. This was really helpful.
+
+Marc: [neutral] Anytime.
+
+Sven: [casual] I'm gonna go spec something. Or vibe something. One of those.
+
+Lisa: [warm] Keep experimenting!

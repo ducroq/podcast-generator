@@ -1,0 +1,256 @@
+{
+  "voices": {
+    "ember": {
+      "file": "ember.mp3",
+      "description": "Female, Southern US accent",
+      "source": "ElevenLabs Voice Design (synthetic)",
+      "synthetic": true,
+      "use_case": "Host, narrator, presenter"
+    },
+    "emma": {
+      "file": "emma.mp3",
+      "description": "Female, clear English, Dutch accent",
+      "source": "ElevenLabs Voice Design (synthetic)",
+      "synthetic": true,
+      "use_case": "Host, narrator, presenter"
+    },
+    "lisa": {
+      "file": "lisa.mp3",
+      "description": "Female host, warm and curious, clear English",
+      "source": "ElevenLabs Voice Design (synthetic)",
+      "synthetic": true,
+      "use_case": "Podcast host, interviewer, narrator"
+    },
+    "marc": {
+      "file": "marc.mp3",
+      "description": "Male expert, calm and knowledgeable, Dutch accent",
+      "source": "ElevenLabs Voice Design (synthetic)",
+      "synthetic": true,
+      "use_case": "Expert commentary, explanations, lectures"
+    },
+    "narrator": {
+      "file": "narrator.mp3",
+      "description": "Male, neutral, clear English",
+      "source": "Chatterbox native/default voice",
+      "synthetic": true,
+      "use_case": "Narration, general purpose"
+    },
+    "sven": {
+      "file": "sven.mp3",
+      "description": "Male student, skeptical and casual, Dutch accent",
+      "source": "ElevenLabs Voice Design (synthetic)",
+      "synthetic": true,
+      "use_case": "Student perspective, questions, skeptic role"
+    },
+    "victoria": {
+      "file": "victoria.mp3",
+      "description": "Female, British accent",
+      "source": "ElevenLabs Voice Design (synthetic)",
+      "synthetic": true,
+      "use_case": "Host, narrator, presenter"
+    },
+    "alex": {
+      "file": "alex.mp3",
+      "description": "Male host, warm, mid-Atlantic/international accent — PREFERRED for It Is Both podcast",
+      "source": "ElevenLabs Voice Design v3 (synthetic)",
+      "synthetic": true,
+      "use_case": "It Is Both podcast host (Alex)",
+      "project": "it-is-both"
+    },
+    "alex-dutch": {
+      "file": "alex-dutch.mp3",
+      "description": "Male host, Dutch-European accent variant",
+      "source": "ElevenLabs Voice Design v3 (synthetic)",
+      "synthetic": true,
+      "use_case": "It Is Both podcast host (Alex) — Dutch accent option",
+      "project": "it-is-both"
+    },
+    "alex-english": {
+      "file": "alex-english.mp3",
+      "description": "Male host, neutral English accent variant (tends British)",
+      "source": "ElevenLabs Voice Design v3 (synthetic)",
+      "synthetic": true,
+      "use_case": "It Is Both podcast host (Alex) — English accent option",
+      "project": "it-is-both"
+    },
+    "lucas": {
+      "file": "lucas.mp3",
+      "description": "Male, alternative host voice",
+      "source": "ElevenLabs Voice Design v3 (synthetic)",
+      "synthetic": true,
+      "use_case": "Podcast host"
+    },
+    "emma-english": {
+      "file": "emma_english_sample.mp3",
+      "description": "Female, clear English sample (bilingual voice ref)",
+      "source": "ElevenLabs Voice Design (synthetic)",
+      "synthetic": true,
+      "use_case": "English-language episodes, bilingual host"
+    },
+    "emma-nl": {
+      "file": "emma_nl_sample.mp3",
+      "description": "Female, Dutch sample (bilingual voice ref)",
+      "source": "ElevenLabs Voice Design (synthetic)",
+      "synthetic": true,
+      "use_case": "Dutch-language episodes, bilingual host"
+    },
+    "lucas-english": {
+      "file": "lucas_english_sample.mp3",
+      "description": "Male, English sample (bilingual voice ref)",
+      "source": "ElevenLabs Voice Design v3 (synthetic)",
+      "synthetic": true,
+      "use_case": "English-language episodes, bilingual host"
+    },
+    "lucas-nl": {
+      "file": "lucas_nl_sample.mp3",
+      "description": "Male, Dutch sample (bilingual voice ref)",
+      "source": "ElevenLabs Voice Design v3 (synthetic)",
+      "synthetic": true,
+      "use_case": "Dutch-language episodes, bilingual host"
+    },
+    "piet-english": {
+      "file": "piet_english_sample.mp3",
+      "description": "Male, English sample (bilingual voice ref)",
+      "source": "ElevenLabs Voice Design v3 (synthetic)",
+      "synthetic": true,
+      "use_case": "English-language episodes, bilingual host"
+    },
+    "piet-nl": {
+      "file": "piet_nl_sample.mp3",
+      "description": "Male, Dutch sample (bilingual voice ref)",
+      "source": "ElevenLabs Voice Design v3 (synthetic)",
+      "synthetic": true,
+      "use_case": "Dutch-language episodes, bilingual host"
+    },
+    "emma-de": {
+      "file": "emma_de.mp3",
+      "description": "Female, 32-36, native German with soft Rhineland warmth, curious presenter",
+      "source": "ElevenLabs Voice Design v3 (synthetic)",
+      "synthetic": true,
+      "use_case": "Mondriaan podcast German episodes, host/presenter",
+      "project": "mondriaan"
+    },
+    "lucas-de": {
+      "file": "lucas_de.mp3",
+      "description": "Male, 38-42, native German with soft Rhineland warmth, art history expert",
+      "source": "ElevenLabs Voice Design v3 (synthetic)",
+      "synthetic": true,
+      "use_case": "Mondriaan podcast German episodes, expert role",
+      "project": "mondriaan"
+    },
+    "piet-de": {
+      "file": "piet_de.mp3",
+      "description": "Male, 55-65, Dutch-accented German, Mondriaan himself — artist-philosopher",
+      "source": "ElevenLabs Voice Design v3 (synthetic)",
+      "synthetic": true,
+      "use_case": "Mondriaan podcast German episodes, voice of Mondriaan",
+      "project": "mondriaan"
+    },
+    "daan-nl": {
+      "file": "daan_nl.mp3",
+      "description": "Male, 35-45, warm Dutch news anchor (ABN)",
+      "source": "ElevenLabs Voice Design v3 (synthetic)",
+      "synthetic": true,
+      "use_case": "ovr.news Dutch episodes, Lichtpuntjes host",
+      "project": "ovr-news"
+    },
+    "daan-en": {
+      "file": "daan_en.mp3",
+      "description": "Male, 35-45, English with subtle Dutch accent, warm news anchor",
+      "source": "ElevenLabs Voice Design v3 (synthetic)",
+      "synthetic": true,
+      "use_case": "ovr.news English episodes, cross-project narration",
+      "project": "ovr-news"
+    },
+    "sofie-nl": {
+      "file": "sofie_nl.mp3",
+      "description": "Female, 30-40, professional Dutch news anchor, warm and authoritative",
+      "source": "ElevenLabs Voice Design v3 (synthetic)",
+      "synthetic": true,
+      "use_case": "ovr.news Dutch episodes, Lichtpuntjes co-anchor",
+      "project": "ovr-news"
+    },
+    "sofie-en": {
+      "file": "sofie_en.mp3",
+      "description": "Female, 30-40, English with subtle Dutch accent, professional anchor",
+      "source": "ElevenLabs Voice Design v3 (synthetic)",
+      "synthetic": true,
+      "use_case": "ovr.news English episodes, cross-project narration",
+      "project": "ovr-news"
+    },
+    "felix": {
+      "file": "felix.mp3",
+      "description": "Male, 40-50, warm baritone, wonder and curiosity, accent-free English",
+      "source": "ElevenLabs Voice Design v3 (synthetic)",
+      "synthetic": true,
+      "use_case": "Sol Invictus narrator, science storytelling",
+      "project": "sol-invictus"
+    },
+    "zara": {
+      "file": "zara.mp3",
+      "description": "Female, 23-28, energetic and encouraging, accent-free English",
+      "source": "ElevenLabs Voice Design v3 (synthetic)",
+      "synthetic": true,
+      "use_case": "Graduate Career Launchpad, student-facing content",
+      "project": "graduate-career-launchpad"
+    },
+    "professor": {
+      "file": "professor.mp3",
+      "description": "Male, 50+, measured academic, subtle European accent, intellectual clarity",
+      "source": "ElevenLabs Voice Design v3 (synthetic)",
+      "synthetic": true,
+      "use_case": "Digital Engineers research, vmodel.eu, academic content",
+      "project": "digital-engineers"
+    },
+    "oma": {
+      "file": "oma.mp3",
+      "description": "Female, 55+, wise Dutch storyteller, gentle gravitas",
+      "source": "ElevenLabs Voice Design v3 (synthetic)",
+      "synthetic": true,
+      "use_case": "Busara wisdom content, children's stories, philosophical storytelling",
+      "project": "busara"
+    },
+    "ruth": {
+      "file": "ruth.mp3",
+      "description": "Female, friendly children's storyteller",
+      "source": "ElevenLabs Voice Design v3 (synthetic)",
+      "synthetic": true,
+      "use_case": "Children's content, Busara stories"
+    },
+    "hugo": {
+      "file": "hugo.mp3",
+      "description": "Male, enthusiastic and professional",
+      "source": "ElevenLabs Voice Design v3 (synthetic)",
+      "synthetic": true,
+      "use_case": "Energetic presentations, product content"
+    },
+    "serafina": {
+      "file": "serafina.mp3",
+      "description": "Female, sensual and expressive",
+      "source": "ElevenLabs Voice Design v3 (synthetic)",
+      "synthetic": true,
+      "use_case": "Creative content, dramatic narration"
+    },
+    "jann": {
+      "file": "jann.mp3",
+      "description": "Male, calm, confident and natural",
+      "source": "ElevenLabs Voice Design v3 (synthetic)",
+      "synthetic": true,
+      "use_case": "General narration, calm delivery"
+    },
+    "serge": {
+      "file": "serge.mp3",
+      "description": "Male, professional Dutch narrator",
+      "source": "ElevenLabs Voice Design v3 (synthetic)",
+      "synthetic": true,
+      "use_case": "Dutch narration, professional content"
+    }
+  },
+  "notes": {
+    "all_synthetic": "All voices are 100% synthetic - not cloned from real people.",
+    "format": "MP3, 10-30 seconds of clean speech works best",
+    "location_local": "C:\\local_dev\\podcast-generator\\voices\\",
+    "location_vox": "~/voice_refs/",
+    "designs": "Voice design prompts in voices/designs/*.md"
+  }
+}
