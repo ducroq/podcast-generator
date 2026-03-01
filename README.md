@@ -1,95 +1,128 @@
 # Podcast Generator
 
-Multi-project podcast production hub with shared TTS engines and a master voice library.
+A methodology and toolkit for producing AI-generated podcasts that sound like real conversations, not robot lectures.
 
-## Structure
+This project captures everything learned from producing a multilingual podcast series — from narrative design and character voice creation to audio generation and mastering. The tools are built for ElevenLabs and Chatterbox TTS, but the methodology applies to any engine.
 
-```
-podcast-generator/
-├── generator/                    # TTS engines and shared tools
-│   ├── chatterbox/               # Chatterbox TTS (GPU, open-source, English-only)
-│   │   └── generate_podcast.py   # Multi-speaker podcast generator
-│   ├── elevenlabs/               # ElevenLabs TTS (paid API, multilingual)
-│   │   ├── generate_episode.py   # Full episode generator (text_to_dialogue)
-│   │   ├── generate_single_line.py  # Single-line repair tool
-│   │   ├── generate_voice_samples.py  # Voice sample generator for cloning
-│   │   ├── test_voice.py         # Voice ID tester
-│   │   ├── src/                  # Shared modules (parser, voice config)
-│   │   ├── requirements.txt
-│   │   └── .env                  # API key + voice IDs
-│   ├── trim_silences.py          # Shared: shorten pauses in any MP3
-│   └── cleanup_server.sh         # GPU server maintenance
-├── voices/                       # Master voice library (30+ synthetic voices)
-│   ├── voices.json               # Full metadata for all voices
-│   ├── designs/                  # Voice design specs (per language)
-│   ├── clone_tests/              # TTS engine comparison samples
-│   └── *.mp3                     # Reference audio files
-└── podcasts/                     # Per-podcast projects
-    ├── vision-at-the-edge/       # AI/tech education podcast
-    │   ├── PODCAST_GUIDE.md
-    │   ├── dialogen/             # Dialogue scripts
-    │   ├── onderzoek/            # Research notes
-    │   └── productie/            # Generated audio
-    ├── ovr-news/                 # News podcast (scaffold)
-    └── sol-invictus/             # Narrative podcast (scaffold)
-```
+## Case Study: Mondriaan de Denker
 
-## TTS Engines
+The methodology was developed and validated on a 7-episode educational podcast about Piet Mondriaan's philosophy:
+
+- **7 episodes** across **3 languages** (Dutch, English, German)
+- **300+ plays per episode**, growing organically through Spotify, Apple Podcasts, and YouTube
+- **Top 10-25% globally** in engagement — 72-147% average consumption rate
+- 100+ subscribers within the first months, zero paid promotion
+
+The series proves that AI-generated audio can hold attention when the writing, voice design, and production are treated with the same care as traditional podcasting.
+
+## The Methodology
+
+Two guides capture the production knowledge:
+
+- **[Narrative Design Guide](docs/NARRATIVE_DESIGN.md)** — How to write scripts that sound like real conversations: the three-voice model, emotional arcs, dialogue dynamics, and series continuity.
+- **[Production Guide](docs/PRODUCTION_GUIDE.md)** — The technical pipeline from script to published episode: TTS engine selection, audio tag usage, silence trimming, mastering parameters, and multilingual workflows.
+
+## The Toolkit
+
+### TTS Engines
 
 | Engine | Best for | Quality | Cost |
 |--------|----------|---------|------|
+| **ElevenLabs** | Multilingual, Dutch, German | Excellent | Paid API |
 | **Chatterbox** | English podcasts | Excellent | Free (GPU required) |
-| **ElevenLabs** | Multilingual, Dutch | Excellent | Paid API |
 
-### Chatterbox (runs on gpu-server)
+ElevenLabs' `text_to_dialogue` API is the key — it understands conversation context and audio tags, producing natural speaker transitions that per-line generation can't match.
 
-```bash
-# Copy script to server, generate, copy back
-scp script.txt gpu-server:~/
-ssh gpu-server "cd ~/chatterbox && python generate_podcast.py ~/script.txt -o ~/output.mp3"
-scp gpu-server:~/output.mp3 .
-```
-
-### ElevenLabs
+### CLI Tools
 
 ```bash
-cd generator/elevenlabs
-pip install -r requirements.txt
+# Generate a full episode from a dialogue script
+python generator/elevenlabs/generate_episode.py script.txt --lang de --output-dir output/
 
-# Generate full episode
-python generate_episode.py ../../podcasts/vision-at-the-edge/dialogen/script.txt
+# Repair a single line without regenerating the whole episode
+python generator/elevenlabs/generate_single_line.py "Emma: [excited] This is amazing!" fix_01
 
-# Generate with language variant and custom output
-python generate_episode.py script.txt --lang de --output-dir ../../podcasts/mondriaan/productie
+# Generate voice samples for cloning/comparison
+python generator/elevenlabs/generate_voice_samples.py
 
-# Repair a single line
-python generate_single_line.py "Emma: [excited] This is amazing!" fix_01
-
-# Test a new voice ID
-python test_voice.py script.txt "OPENING" --lucas "new_voice_id"
-```
-
-### Post-processing
-
-```bash
-# Trim excessive pauses (works with any engine's output)
+# Trim excessive TTS pauses (works with any engine's output)
 python generator/trim_silences.py input.mp3 output.mp3 --no-loudnorm
 
 # Final master (always last step, after mixing music)
 ffmpeg -i mix.mp3 -af "loudnorm=I=-16:TP=-1.5:LRA=11" -codec:a libmp3lame -b:a 192k final.mp3
 ```
 
-## Adding a New Podcast
+### Script Format
 
-1. Create a folder under `podcasts/`:
-   ```
-   podcasts/my-podcast/
-   ├── dialogen/     # Scripts
-   └── productie/    # Output audio
-   ```
-2. Write dialogue scripts in `Speaker: [emotion] Text` format
-3. Generate with either engine, pointing `--output-dir` to your `productie/` folder
+```
+==================================================
+SEGMENT NAME
+==================================================
+
+Emma: [curious] So what happened when he moved to Paris?
+Lucas: [building] Everything changed. He saw Cubism and thought...
+Lucas: [excited] ...this is what I've been looking for my entire life.
+```
+
+Audio tags like `[curious]`, `[excited]`, `[warm]` control emotional delivery through ElevenLabs' dialogue API. See the [Production Guide](docs/PRODUCTION_GUIDE.md) for the full tag reference.
 
 ## Voice Library
 
-All 30+ voices are 100% synthetic (ElevenLabs Voice Design v3). See `voices/voices.json` for full metadata. Voice reference files are synced to gpu-server at `~/voice_refs/` for Chatterbox use.
+All 30+ voices are **100% synthetic** — designed from scratch using ElevenLabs Voice Design v3, not cloned from real people.
+
+Each voice starts as a character brief: age, accent, personality, speech patterns, and TTS engine settings. The same character sounds like the same person across languages — same personality, different language. A Dutch accent on a historical Dutch figure is a feature, not a bug.
+
+Voice designs live in `voices/designs/` (see [TEMPLATE.md](voices/designs/TEMPLATE.md) for the methodology). Voice metadata and reference audio are tracked in `voices/voices.json`.
+
+## Project Structure
+
+```
+podcast-generator/
+├── docs/                            # Methodology guides
+│   ├── NARRATIVE_DESIGN.md          # Script writing methodology
+│   └── PRODUCTION_GUIDE.md          # Technical production pipeline
+├── generator/                       # TTS engines and tools
+│   ├── elevenlabs/                  # ElevenLabs TTS (multilingual)
+│   │   ├── generate_episode.py      # Full episode generator
+│   │   ├── generate_single_line.py  # Single-line repair tool
+│   │   ├── generate_voice_samples.py
+│   │   ├── test_voice.py            # Voice ID tester
+│   │   ├── src/                     # Shared modules
+│   │   └── .env.example             # Configuration template
+│   ├── chatterbox/                  # Chatterbox TTS (English, GPU)
+│   │   └── generate_podcast.py
+│   └── trim_silences.py             # Post-processing: shorten pauses
+├── voices/                          # Master voice library
+│   ├── voices.json                  # Full metadata for all voices
+│   ├── designs/                     # Voice design specs per character
+│   └── *.mp3                        # Reference audio files
+└── podcasts/                        # Per-podcast projects
+    └── my-podcast/
+        ├── dialogen/                # Dialogue scripts
+        └── productie/               # Generated audio
+```
+
+## Getting Started
+
+1. **Clone this repo** and install dependencies:
+   ```bash
+   cd generator/elevenlabs
+   pip install -r requirements.txt
+   ```
+
+2. **Set up your API key** — copy `.env.example` to `.env` and add your ElevenLabs API key and voice IDs:
+   ```bash
+   cp .env.example .env
+   ```
+
+3. **Design your voices** — use the [voice design template](voices/designs/TEMPLATE.md) to create character briefs, then generate voices in ElevenLabs Voice Design
+
+4. **Write a script** — follow the [Narrative Design Guide](docs/NARRATIVE_DESIGN.md) for structure and dialogue patterns
+
+5. **Generate audio**:
+   ```bash
+   python generate_episode.py ../../podcasts/my-podcast/dialogen/script.txt \
+       --output-dir ../../podcasts/my-podcast/productie
+   ```
+
+6. **Post-process** — trim silences, mix music in a DAW, then master with FFmpeg (see [Production Guide](docs/PRODUCTION_GUIDE.md))

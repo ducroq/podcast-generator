@@ -221,11 +221,8 @@ Auto-detection:
         input_line = args.line
         output_name = args.output_name
     else:
-        input_line = "\
-Lucas: [enthusiastic] En wie weet, tot een andere keer... bij Mondriaan de Denker!"
-
-
-        output_name = "repair_"
+        input_line = "Emma: [excited] And that changes everything we thought we knew!"
+        output_name = "repair_test"
 
     # Load environment variables
     load_dotenv(SCRIPT_DIR / '.env')

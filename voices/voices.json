@@ -249,8 +249,7 @@
   "notes": {
     "all_synthetic": "All voices are 100% synthetic - not cloned from real people.",
     "format": "MP3, 10-30 seconds of clean speech works best",
-    "location_local": "C:\\local_dev\\podcast-generator\\voices\\",
-    "location_vox": "~/voice_refs/",
+    "gpu_sync": "Voice refs can be synced to a GPU server for Chatterbox use",
     "designs": "Voice design prompts in voices/designs/*.md"
   }
 }

@@ -115,7 +115,7 @@ Python 3.13 removed the `audioop` module that pydub depends on. Use FFmpeg subpr
 ## Chatterbox Notes
 
 - Excellent for English, poor for Dutch
-- Runs on GPU server (RTX 4080), not locally
-- Voice refs synced to `~/voice_refs/` on gpu-server
+- Runs on a GPU server, not locally
+- Voice refs synced to the GPU server for cloning
 - No audio tag support — emotion comes from voice reference selection only
 - Includes its own mastering pipeline (compression + loudnorm at -16 LUFS)
