@@ -78,6 +78,57 @@ Use thinking sounds and self-corrections sparingly — 2-3 per segment maximum:
 
 Too many and it sounds scripted-trying-to-sound-unscripted. Too few and it sounds robotic.
 
+### Conversational Texture
+
+Real conversations aren't tidy. Scripts that feel alive use these patterns:
+
+**Interruptions** — one speaker cuts in mid-sentence. Use an em-dash to mark the break:
+```
+Expert: [building] And what he realized was that the entire tradition of—
+Host: [excited] Wait, you mean he rejected ALL of it?
+Expert: [calm] Not rejected. Transcended.
+```
+
+**Completing each other's thoughts** — one trails off, the other finishes:
+```
+Host: [thoughtful] So if you take that logic further, then...
+Expert: [completing] Then the painting isn't a picture anymore. It's a system.
+```
+
+**Backchanneling** — short reactive lines between longer turns. These break the rhythm of lecture-length monologues:
+```
+Expert: [explaining] He spent three years just painting trees.
+Host: [surprised] Three years?
+Expert: [warm] Three years. And each one got more abstract than the last.
+```
+
+**Pushback and disagreement** — not every exchange should escalate toward agreement. The host should challenge, and the expert should occasionally concede:
+```
+Host: [skeptical] But isn't that just... intellectualizing what's basically decoration?
+Expert: [thoughtful] That's a fair challenge. And honestly, some art historians agree with you.
+Expert: [building] But here's what changed my mind—
+```
+
+**Vary turn length dramatically.** A common trap is every turn being 1-3 sentences. Mix single-word reactions with 30-second monologues. The contrast creates rhythm:
+```
+Expert: [passionate] He believed — genuinely believed — that if you could find the
+right balance between horizontal and vertical, between red and blue and yellow, you
+weren't just making a painting. You were modelling the structure of reality itself.
+That everything in the universe, from a jazz melody to a city grid to the way light
+falls on water, follows the same underlying pattern of opposition and harmony. And
+he spent forty years trying to prove it.
+Host: [quiet] ...Forty years.
+Expert: [warm] Forty years.
+```
+
+**Incomplete thoughts** — people don't speak in finished paragraphs. Let speakers lose their thread, restart, or change direction mid-sentence:
+```
+Expert: [thinking] The thing about Paris is... well, it wasn't just the art. It was—
+how do I put this — it was the first time he was around people who thought the way he did.
+```
+
+These techniques work with `text_to_dialogue` as written — no post-production needed. The API handles pacing and intonation from the conversational context. For actual overlapping audio (two voices speaking simultaneously), you'd need to generate separately and layer in a DAW.
+
 ## Emotional Progressions
 
 Plan emotional arcs per segment, not just content arcs.
@@ -154,6 +205,9 @@ Listeners who can follow up become loyal listeners.
 
 A script is ready when:
 - [ ] Sounds like a real conversation when read aloud
+- [ ] Turn lengths vary — mix single-word reactions with longer monologues
+- [ ] At least 2-3 interruptions or incomplete thoughts per segment
+- [ ] Host pushes back or disagrees at least once per episode
 - [ ] Host asks questions the listener would ask
 - [ ] Expert gives concrete examples, not just abstractions
 - [ ] Source quotes integrate naturally with setup and payoff
