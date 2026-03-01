@@ -85,6 +85,34 @@ ffmpeg -i final_mix.mp3 -af "loudnorm=I=-16:TP=-1.5:LRA=11" -codec:a libmp3lame 
 
 Dynamic compression is usually unnecessary — ElevenLabs output is already well-leveled.
 
+### Overlapping speech (advanced)
+
+`text_to_dialogue` generates a single audio stream with sequential turns — speakers never actually talk over each other. For moments where you want genuine overlap (interruptions, reactive sounds under someone's turn, two people laughing together), you need to generate and mix separately.
+
+**The hybrid approach:**
+
+1. Generate the full episode with `text_to_dialogue` as usual — this gives you natural pacing and conversational context for 95% of the episode
+2. Identify 2-3 moments where overlap would sell the scene (an excited interruption, a "mmhm" under a monologue, shared laughter)
+3. Generate those specific lines separately — either with `text_to_speech` per line, or with Chatterbox on a GPU server
+4. In your DAW, replace or layer those moments: pull the interrupting speaker's start earlier so they overlap the previous speaker's last words
+
+**What works well for overlap:**
+- Non-verbal sounds under a monologue: sighs, chuckles, "hmm" thinking sounds, exhales — these don't need conversational context so they sound natural even when generated separately
+- Short reactive words: "Mmhm", "Right", "Wow", laughter
+- Interruptions where one speaker cuts in on the last 1-2 words
+- Two speakers reacting to a revelation at the same time
+
+**What doesn't work:**
+- Long simultaneous monologues — unintelligible, just like real life
+- Overlapping every turn — exhausting to listen to, use sparingly
+
+**DAW tips:**
+- Crossfade the overlap region (50-100ms) to avoid clicks
+- Lower the interrupted speaker's volume slightly in the overlap zone — the listener's ear follows the louder voice
+- Keep overlaps short (0.5-1.5s) — just enough to break the sequential feel
+
+Use this selectively. Two or three well-placed overlaps per episode add more realism than overlapping every other turn.
+
 ## Multilingual Scripts
 
 When translating scripts to other languages:
