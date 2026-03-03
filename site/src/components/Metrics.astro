@@ -1,0 +1,69 @@
+---
+const metrics = [
+  { value: '7', label: 'Episodes', suffix: '' },
+  { value: '3', label: 'Languages', suffix: '' },
+  { value: '30+', label: 'Voices', suffix: '' },
+  { value: '300+', label: 'Plays / Episode', suffix: '' },
+  { value: 'Top 25%', label: 'Engagement Globally', suffix: '' },
+];
+---
+
+<section class="metrics-bar">
+  <div class="metrics-inner">
+    {metrics.map((m) => (
+      <div class="metric">
+        <span class="metric-value">{m.value}</span>
+        <span class="metric-label">{m.label}</span>
+      </div>
+    ))}
+  </div>
+</section>
+
+<style>
+  .metrics-bar {
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    padding: 2rem 1.5rem;
+  }
+
+  .metrics-inner {
+    max-width: var(--max-width);
+    margin: 0 auto;
+    display: flex;
+    justify-content: center;
+    gap: 3rem;
+    flex-wrap: wrap;
+  }
+
+  .metric {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.25rem;
+  }
+
+  .metric-value {
+    font-family: var(--font-mono);
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--amber);
+  }
+
+  .metric-label {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--text-dim);
+  }
+
+  @media (max-width: 640px) {
+    .metrics-inner {
+      gap: 1.5rem;
+    }
+    .metric-value {
+      font-size: 1.25rem;
+    }
+  }
+</style>

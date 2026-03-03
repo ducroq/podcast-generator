@@ -1,0 +1,165 @@
+/* ── Reset ── */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+/* ── Tokens ── */
+:root {
+  --bg: #0b0b0f;
+  --surface: #14141a;
+  --surface-hover: #1c1c24;
+  --border: #2a2a35;
+  --border-subtle: #1e1e28;
+  --text: #e8e8ed;
+  --text-muted: #9898a8;
+  --text-dim: #65657a;
+  --amber: #f0a830;
+  --amber-dim: #c88a20;
+  --amber-glow: rgba(240, 168, 48, 0.12);
+  --amber-glow-strong: rgba(240, 168, 48, 0.25);
+  --green: #34d399;
+  --font-mono: 'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
+  --font-body: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --max-width: 1100px;
+  --section-gap: 6rem;
+}
+
+/* ── Base ── */
+html {
+  scroll-behavior: smooth;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  font-family: var(--font-body);
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.65;
+  font-size: 1rem;
+}
+
+/* ── Typography ── */
+h1, h2, h3, h4 {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+}
+
+h1 { font-size: clamp(2rem, 5vw, 3.25rem); }
+h2 { font-size: clamp(1.5rem, 3vw, 2rem); }
+h3 { font-size: clamp(1.125rem, 2vw, 1.375rem); }
+
+p {
+  color: var(--text-muted);
+  max-width: 65ch;
+}
+
+a {
+  color: var(--amber);
+  text-decoration: none;
+  transition: color 0.2s;
+}
+a:hover {
+  color: var(--text);
+}
+
+/* ── Layout ── */
+.section {
+  padding: var(--section-gap) 1.5rem;
+  max-width: var(--max-width);
+  margin: 0 auto;
+}
+
+.section-label {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--amber);
+  margin-bottom: 1rem;
+  display: block;
+}
+
+.section-title {
+  margin-bottom: 1.5rem;
+}
+
+.section-desc {
+  font-size: 1.125rem;
+  margin-bottom: 3rem;
+}
+
+/* ── Dividers ── */
+.divider {
+  max-width: var(--max-width);
+  margin: 0 auto;
+  padding: 0 1.5rem;
+}
+.divider hr {
+  border: none;
+  height: 1px;
+  background: var(--border);
+}
+
+/* ── Cards ── */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1.75rem;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.card:hover {
+  border-color: var(--amber-dim);
+  box-shadow: 0 0 24px var(--amber-glow);
+}
+
+/* ── Badge ── */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--amber);
+  background: var(--amber-glow);
+  border: 1px solid rgba(240, 168, 48, 0.2);
+  padding: 0.3rem 0.75rem;
+  border-radius: 100px;
+}
+
+/* ── Utilities ── */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar {
+  width: 8px;
+}
+::-webkit-scrollbar-track {
+  background: var(--bg);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-dim);
+}

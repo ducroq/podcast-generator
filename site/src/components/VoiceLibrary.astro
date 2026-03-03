@@ -1,0 +1,131 @@
+---
+import AudioPlayer from './AudioPlayer.astro';
+const base = import.meta.env.BASE_URL;
+
+const voices = [
+  {
+    name: 'Emma',
+    desc: 'Female, clear English, Dutch accent — bilingual host',
+    file: 'emma.mp3',
+    tags: ['Host', 'Dutch', 'English'],
+  },
+  {
+    name: 'Felix',
+    desc: 'Male, warm baritone, wonder narrator — accent-free',
+    file: 'felix.mp3',
+    tags: ['Narrator', 'English'],
+  },
+  {
+    name: 'Marc',
+    desc: 'Male, calm expert, Dutch accent — knowledgeable authority',
+    file: 'marc.mp3',
+    tags: ['Expert', 'Dutch'],
+  },
+  {
+    name: 'Zara',
+    desc: 'Female, energetic and encouraging — accent-free',
+    file: 'zara.mp3',
+    tags: ['Presenter', 'English'],
+  },
+  {
+    name: 'Professor',
+    desc: 'Male, 50+, measured academic — subtle European accent',
+    file: 'professor.mp3',
+    tags: ['Academic', 'English'],
+  },
+  {
+    name: 'Daan',
+    desc: 'Male, warm news anchor — English with Dutch undertones',
+    file: 'daan_en.mp3',
+    tags: ['Anchor', 'English', 'Dutch'],
+  },
+];
+---
+
+<section class="section" id="voices">
+  <span class="section-label">Voice Library</span>
+  <h2 class="section-title">30+ Synthetic Voices, Zero Clones</h2>
+  <p class="section-desc">
+    Every voice is designed from scratch — age, accent, personality, speech patterns.
+    The same character sounds like the same person across languages.
+    Voice design is a discipline, not a button click.
+  </p>
+
+  <div class="voice-grid">
+    {voices.map((v) => (
+      <div class="voice-card card">
+        <div class="voice-info">
+          <h3 class="voice-name">{v.name}</h3>
+          <p class="voice-desc">{v.desc}</p>
+          <div class="voice-tags">
+            {v.tags.map((tag) => (
+              <span class="voice-tag">{tag}</span>
+            ))}
+          </div>
+        </div>
+        <AudioPlayer src={`${base}audio/${v.file}`} compact />
+      </div>
+    ))}
+  </div>
+
+  <p class="voice-footer">
+    Showing 6 of 30+ voices. Full library includes Dutch, English, and German voices across news anchors, storytellers, academics, and more.
+    See <a href="https://github.com/ducroq/podcast-generator/blob/main/voices/voices.json" target="_blank" rel="noopener">voices.json</a> for the complete catalog.
+  </p>
+</section>
+
+<style>
+  .voice-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 1.25rem;
+    margin-bottom: 1.5rem;
+  }
+
+  .voice-card {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  .voice-name {
+    font-size: 1.1rem;
+    margin-bottom: 0.25rem;
+  }
+
+  .voice-desc {
+    font-size: 0.85rem;
+    line-height: 1.4;
+    margin-bottom: 0.5rem;
+  }
+
+  .voice-tags {
+    display: flex;
+    gap: 0.35rem;
+    flex-wrap: wrap;
+  }
+
+  .voice-tag {
+    font-family: var(--font-mono);
+    font-size: 0.6rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    background: var(--surface-hover);
+    border: 1px solid var(--border-subtle);
+    padding: 0.15rem 0.5rem;
+    border-radius: 4px;
+  }
+
+  .voice-footer {
+    font-size: 0.85rem;
+    text-align: center;
+    color: var(--text-dim);
+  }
+
+  @media (max-width: 640px) {
+    .voice-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>

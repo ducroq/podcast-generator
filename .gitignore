@@ -9,6 +9,14 @@ __pycache__/
 *.mp3
 *.wav
 
+# Allow site demo audio
+!site/public/audio/*.mp3
+
+# Node / Astro
+node_modules/
+dist/
+.astro/
+
 # IDE
 .vscode/
 .idea/

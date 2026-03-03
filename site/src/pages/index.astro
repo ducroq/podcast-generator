@@ -1,0 +1,66 @@
+---
+import Layout from '../layouts/Layout.astro';
+import Hero from '../components/Hero.astro';
+import Metrics from '../components/Metrics.astro';
+import Methodology from '../components/Methodology.astro';
+import Pipeline from '../components/Pipeline.astro';
+import VoiceLibrary from '../components/VoiceLibrary.astro';
+---
+
+<Layout title="Podcast Generator — AI-Augmented Production">
+  <main>
+    <Hero />
+
+    <Metrics />
+
+    <div class="divider"><hr /></div>
+
+    <Methodology />
+
+    <div class="divider"><hr /></div>
+
+    <Pipeline />
+
+    <div class="divider"><hr /></div>
+
+    <VoiceLibrary />
+  </main>
+
+  <footer class="site-footer">
+    <nav class="footer-links">
+      <a href="https://dev.jeroenveen.nl">dev.jeroenveen.nl</a>
+      <span class="footer-sep">/</span>
+      <a href="https://github.com/ducroq/podcast-generator" target="_blank" rel="noopener">GitHub</a>
+      <span class="footer-sep">/</span>
+      <a href="https://jeroenveen.nl" target="_blank" rel="noopener">jeroenveen.nl</a>
+    </nav>
+    <p class="footer-copy">Built with Astro, powered by synthetic voices.</p>
+  </footer>
+</Layout>
+
+<style>
+  .site-footer {
+    border-top: 1px solid var(--border);
+    padding: 3rem 1.5rem;
+    text-align: center;
+  }
+
+  .footer-links {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 0.5rem;
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    margin-bottom: 0.75rem;
+  }
+
+  .footer-sep {
+    color: var(--text-dim);
+  }
+
+  .footer-copy {
+    font-size: 0.75rem;
+    color: var(--text-dim);
+  }
+</style>

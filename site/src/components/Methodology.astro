@@ -1,0 +1,146 @@
+---
+const voices = [
+  {
+    role: 'Host',
+    pct: '35%',
+    desc: 'Guides the listener. Asks questions a curious non-expert would ask. Controls pacing and transitions.',
+    color: 'var(--amber)',
+  },
+  {
+    role: 'Expert',
+    pct: '60%',
+    desc: 'Delivers the substance. Explains, contextualizes, builds narrative. The voice listeners trust.',
+    color: 'var(--text)',
+  },
+  {
+    role: 'Source',
+    pct: '5%',
+    desc: 'The historical or primary voice. Quotes, letters, original words. Adds authenticity and emotional punch.',
+    color: 'var(--text-dim)',
+  },
+];
+---
+
+<section class="section" id="methodology">
+  <span class="section-label">The Methodology</span>
+  <h2 class="section-title">Three Voices, One Conversation</h2>
+  <p class="section-desc">
+    AI gets 80% right. The methodology is the other 20% — dialogue dynamics, emotional arcs, and the discipline of knowing when not to let the AI talk.
+  </p>
+
+  <div class="voice-model">
+    {voices.map((v) => (
+      <div class="voice-role card">
+        <div class="role-header">
+          <span class="role-name" style={`color: ${v.color}`}>{v.role}</span>
+          <span class="role-pct">{v.pct}</span>
+        </div>
+        <div class="role-bar">
+          <div class="role-fill" style={`width: ${v.pct}; background: ${v.color}`} />
+        </div>
+        <p class="role-desc">{v.desc}</p>
+      </div>
+    ))}
+  </div>
+
+  <div class="arc-section">
+    <h3>Emotional Arc Design</h3>
+    <p class="arc-desc">
+      Every episode follows a deliberate emotional trajectory — not flat information delivery. Scripts are structured around tension, discovery, and resolution, using audio tags to control vocal delivery at the phrase level.
+    </p>
+    <div class="arc-visual">
+      <svg viewBox="0 0 400 80" class="arc-svg" aria-hidden="true">
+        <path d="M0,60 C40,60 60,55 100,45 S160,15 200,10 S260,20 300,35 S360,50 400,40"
+              fill="none" stroke="var(--amber)" stroke-width="2" opacity="0.8"/>
+        <path d="M0,60 C40,60 60,55 100,45 S160,15 200,10 S260,20 300,35 S360,50 400,40 V80 H0 Z"
+              fill="var(--amber-glow)" opacity="0.3"/>
+        <!-- Labels -->
+        <text x="20" y="75" class="arc-label">Hook</text>
+        <text x="130" y="75" class="arc-label">Build</text>
+        <text x="200" y="75" class="arc-label">Peak</text>
+        <text x="290" y="75" class="arc-label">Resolve</text>
+        <text x="370" y="75" class="arc-label">Close</text>
+      </svg>
+    </div>
+  </div>
+</section>
+
+<style>
+  .voice-model {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 1.25rem;
+    margin-bottom: 3rem;
+  }
+
+  .role-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 0.75rem;
+  }
+
+  .role-name {
+    font-family: var(--font-mono);
+    font-size: 1.1rem;
+    font-weight: 700;
+  }
+
+  .role-pct {
+    font-family: var(--font-mono);
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--text-dim);
+  }
+
+  .role-bar {
+    height: 4px;
+    background: var(--border);
+    border-radius: 2px;
+    margin-bottom: 1rem;
+    overflow: hidden;
+  }
+
+  .role-fill {
+    height: 100%;
+    border-radius: 2px;
+    transition: width 0.6s ease;
+  }
+
+  .role-desc {
+    font-size: 0.9rem;
+    line-height: 1.5;
+  }
+
+  .arc-section {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 2rem;
+  }
+
+  .arc-section h3 {
+    margin-bottom: 0.75rem;
+  }
+
+  .arc-desc {
+    font-size: 0.95rem;
+    margin-bottom: 1.5rem;
+  }
+
+  .arc-visual {
+    max-width: 500px;
+  }
+
+  .arc-svg {
+    width: 100%;
+    height: auto;
+  }
+
+  .arc-label {
+    font-family: var(--font-mono);
+    font-size: 8px;
+    fill: var(--text-dim);
+    text-anchor: middle;
+  }
+</style>

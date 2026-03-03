@@ -1,0 +1,159 @@
+---
+const steps = [
+  {
+    num: '01',
+    title: 'Research',
+    tool: 'Claude',
+    desc: 'Deep topic research, source analysis, fact compilation. AI reads hundreds of sources and extracts what matters.',
+  },
+  {
+    num: '02',
+    title: 'Script',
+    tool: 'Claude + Human',
+    desc: 'Three-voice dialogue writing with emotional arcs, segment pacing, and audio tag markup. The creative core.',
+  },
+  {
+    num: '03',
+    title: 'Generate',
+    tool: 'ElevenLabs / Chatterbox',
+    desc: 'Text-to-dialogue generation with full context awareness. Character voices maintain personality across episodes.',
+  },
+  {
+    num: '04',
+    title: 'Post-process',
+    tool: 'Python + FFmpeg',
+    desc: 'Automated silence trimming, segment stitching, per-line repair. Custom tools for precision editing.',
+  },
+  {
+    num: '05',
+    title: 'Master',
+    tool: 'FFmpeg',
+    desc: 'Loudness normalization to podcast standards (-16 LUFS), music mixing, final export.',
+  },
+];
+---
+
+<section class="section" id="pipeline">
+  <span class="section-label">The Pipeline</span>
+  <h2 class="section-title">Five Stages, End to End</h2>
+  <p class="section-desc">
+    Each stage uses AI differently. The skill is knowing which tool for which job — and where human judgment is non-negotiable.
+  </p>
+
+  <div class="pipeline-flow">
+    {steps.map((step, i) => (
+      <div class="pipeline-step">
+        <div class="step-header">
+          <span class="step-num">{step.num}</span>
+          <div class="step-connector" />
+        </div>
+        <div class="step-content card">
+          <h3 class="step-title">{step.title}</h3>
+          <span class="step-tool">{step.tool}</span>
+          <p class="step-desc">{step.desc}</p>
+        </div>
+      </div>
+    ))}
+  </div>
+</section>
+
+<style>
+  .pipeline-flow {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 1rem;
+  }
+
+  .pipeline-step {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .step-header {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    width: 100%;
+    margin-bottom: 0.75rem;
+    justify-content: center;
+    position: relative;
+  }
+
+  .step-num {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: var(--amber);
+    background: var(--amber-glow);
+    border: 1px solid rgba(240, 168, 48, 0.3);
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    z-index: 1;
+  }
+
+  .step-connector {
+    position: absolute;
+    top: 50%;
+    left: calc(50% + 20px);
+    right: -1rem;
+    height: 1px;
+    background: var(--border);
+  }
+
+  .pipeline-step:last-child .step-connector {
+    display: none;
+  }
+
+  .step-content {
+    text-align: center;
+    height: 100%;
+  }
+
+  .step-title {
+    font-size: 1.1rem;
+    margin-bottom: 0.35rem;
+  }
+
+  .step-tool {
+    font-family: var(--font-mono);
+    font-size: 0.65rem;
+    color: var(--amber-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    display: block;
+    margin-bottom: 0.75rem;
+  }
+
+  .step-desc {
+    font-size: 0.875rem;
+    line-height: 1.5;
+  }
+
+  @media (max-width: 640px) {
+    .pipeline-flow {
+      grid-template-columns: 1fr;
+      gap: 0.75rem;
+    }
+    .step-connector {
+      display: none;
+    }
+    .step-content {
+      text-align: left;
+    }
+    .pipeline-step {
+      flex-direction: row;
+      gap: 1rem;
+      align-items: flex-start;
+    }
+    .step-header {
+      width: auto;
+      margin-bottom: 0;
+    }
+  }
+</style>

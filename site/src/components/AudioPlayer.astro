@@ -1,0 +1,226 @@
+---
+interface Props {
+  src: string;
+  label?: string;
+  compact?: boolean;
+}
+
+const { src, label, compact = false } = Astro.props;
+const id = `player-${Math.random().toString(36).slice(2, 9)}`;
+---
+
+<div class:list={['audio-player', { compact }]} data-player={id}>
+  <button class="play-btn" aria-label={`Play ${label || 'audio'}`} data-play={id}>
+    <svg class="icon-play" width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M8 5v14l11-7z"/>
+    </svg>
+    <svg class="icon-pause" width="18" height="18" viewBox="0 0 24 24" fill="currentColor" style="display:none">
+      <rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>
+    </svg>
+  </button>
+
+  {label && !compact && <span class="player-label">{label}</span>}
+
+  <div class="waveform">
+    <div class="waveform-progress"></div>
+    {Array.from({ length: compact ? 20 : 40 }).map(() => (
+      <div class="waveform-bar" style={`height: ${15 + Math.random() * 85}%`} />
+    ))}
+  </div>
+
+  <span class="player-time" data-time={id}>0:00</span>
+
+  <audio preload="metadata" data-audio={id}>
+    <source src={src} type="audio/mpeg" />
+  </audio>
+</div>
+
+<style>
+  .audio-player {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 0.75rem 1rem;
+    width: 100%;
+  }
+  .audio-player.compact {
+    padding: 0.5rem 0.75rem;
+    gap: 0.5rem;
+  }
+
+  .play-btn {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    border: none;
+    background: var(--amber);
+    color: var(--bg);
+    cursor: pointer;
+    transition: transform 0.15s, box-shadow 0.2s;
+  }
+  .compact .play-btn {
+    width: 28px;
+    height: 28px;
+  }
+  .compact .play-btn svg {
+    width: 14px;
+    height: 14px;
+  }
+  .play-btn:hover {
+    transform: scale(1.08);
+    box-shadow: 0 0 16px var(--amber-glow-strong);
+  }
+
+  .player-label {
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    white-space: nowrap;
+    min-width: 0;
+  }
+
+  .waveform {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    height: 32px;
+    position: relative;
+    cursor: pointer;
+    overflow: hidden;
+    border-radius: 4px;
+  }
+  .compact .waveform {
+    height: 24px;
+  }
+
+  .waveform-progress {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 0%;
+    background: var(--amber-glow);
+    border-radius: 4px;
+    pointer-events: none;
+    transition: width 0.1s linear;
+  }
+
+  .waveform-bar {
+    flex: 1;
+    background: var(--border);
+    border-radius: 2px;
+    min-width: 2px;
+    transition: background 0.15s;
+  }
+
+  .audio-player.playing .waveform-bar {
+    animation: pulse 1.2s ease-in-out infinite alternate;
+  }
+  .audio-player.playing .waveform-bar:nth-child(odd) {
+    animation-delay: 0.15s;
+  }
+
+  @keyframes pulse {
+    from { background: var(--amber-dim); }
+    to { background: var(--amber); }
+  }
+
+  .player-time {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    color: var(--text-dim);
+    min-width: 3.5ch;
+    text-align: right;
+  }
+
+  audio { display: none; }
+</style>
+
+<script>
+  // Audio player logic — vanilla JS, no framework
+  document.addEventListener('DOMContentLoaded', () => {
+    let currentlyPlaying: HTMLAudioElement | null = null;
+
+    document.querySelectorAll<HTMLElement>('[data-player]').forEach((container) => {
+      const id = container.dataset.player!;
+      const btn = container.querySelector<HTMLButtonElement>(`[data-play="${id}"]`)!;
+      const audio = container.querySelector<HTMLAudioElement>(`[data-audio="${id}"]`)!;
+      const timeEl = container.querySelector<HTMLSpanElement>(`[data-time="${id}"]`)!;
+      const progress = container.querySelector<HTMLElement>('.waveform-progress')!;
+      const waveform = container.querySelector<HTMLElement>('.waveform')!;
+      const iconPlay = btn.querySelector<SVGElement>('.icon-play')!;
+      const iconPause = btn.querySelector<SVGElement>('.icon-pause')!;
+
+      function formatTime(s: number): string {
+        const m = Math.floor(s / 60);
+        const sec = Math.floor(s % 60);
+        return `${m}:${sec.toString().padStart(2, '0')}`;
+      }
+
+      function setPlaying(playing: boolean) {
+        container.classList.toggle('playing', playing);
+        iconPlay.style.display = playing ? 'none' : '';
+        iconPause.style.display = playing ? '' : 'none';
+      }
+
+      btn.addEventListener('click', () => {
+        if (audio.paused) {
+          // Stop any other player
+          if (currentlyPlaying && currentlyPlaying !== audio) {
+            currentlyPlaying.pause();
+            currentlyPlaying.currentTime = 0;
+          }
+          audio.play();
+          currentlyPlaying = audio;
+        } else {
+          audio.pause();
+        }
+      });
+
+      audio.addEventListener('play', () => setPlaying(true));
+      audio.addEventListener('pause', () => setPlaying(false));
+      audio.addEventListener('ended', () => {
+        setPlaying(false);
+        progress.style.width = '0%';
+        audio.currentTime = 0;
+      });
+
+      audio.addEventListener('timeupdate', () => {
+        if (audio.duration) {
+          const pct = (audio.currentTime / audio.duration) * 100;
+          progress.style.width = `${pct}%`;
+          timeEl.textContent = formatTime(audio.currentTime);
+        }
+      });
+
+      audio.addEventListener('loadedmetadata', () => {
+        timeEl.textContent = formatTime(audio.duration);
+      });
+
+      // Click to seek
+      waveform.addEventListener('click', (e: MouseEvent) => {
+        if (audio.duration) {
+          const rect = waveform.getBoundingClientRect();
+          const pct = (e.clientX - rect.left) / rect.width;
+          audio.currentTime = pct * audio.duration;
+          if (audio.paused) {
+            if (currentlyPlaying && currentlyPlaying !== audio) {
+              currentlyPlaying.pause();
+              currentlyPlaying.currentTime = 0;
+            }
+            audio.play();
+            currentlyPlaying = audio;
+          }
+        }
+      });
+    });
+  });
+</script>
