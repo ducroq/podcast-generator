@@ -5,7 +5,7 @@ Shared production knowledge distilled from the Mondriaan podcast project (7 epis
 ## Pipeline
 
 ```
-Script → Generate (ElevenLabs or Chatterbox) → Trim silences → Mix music in DAW → Master with FFmpeg
+Script → Generate (ElevenLabs, Qwen3-TTS, or Chatterbox) → Trim silences → Mix music in DAW → Master with FFmpeg
 ```
 
 Each step is independent — you can retry any phase without redoing the others.
@@ -72,18 +72,30 @@ python generator/trim_silences.py input.mp3 output.mp3 --no-loudnorm
 
 ### Master (after mixing music, always last)
 
+Full mastering chain with noise floor, compression, and loudness normalization:
+
+```bash
+ffmpeg -y -i input.wav \
+  -filter_complex "
+    anoisesrc=color=pink:sample_rate=24000:amplitude=0.003[noise];
+    [0:a][noise]amix=inputs=2:weights=1 0.15:duration=first[mixed];
+    [mixed]acompressor=threshold=-18dB:ratio=3:attack=5:release=100,loudnorm=I=-16:TP=-1.5:LRA=11[out]
+  " \
+  -map "[out]" -codec:a libmp3lame -b:a 192k master.mp3
+```
+
+| Step | What | Why |
+|------|------|-----|
+| Pink noise floor | `anoisesrc=color=pink:amplitude=0.003` mixed at 15% | Masks jarring digital silence between TTS clips, glues the episode together |
+| Compression | `acompressor=threshold=-18dB:ratio=3` | Harmonizes levels across different speakers/TTS engines |
+| Loudness norm | `loudnorm=I=-16:TP=-1.5:LRA=11` | Spotify/Apple podcast standard (-16 LUFS) |
+| Bitrate | 192 kbps | Good quality for speech + music |
+
+For ElevenLabs-only output (already well-leveled), you can skip the noise floor and compressor and just apply loudnorm:
+
 ```bash
 ffmpeg -i final_mix.mp3 -af "loudnorm=I=-16:TP=-1.5:LRA=11" -codec:a libmp3lame -b:a 192k master.mp3
 ```
-
-| Parameter | Value | Why |
-|-----------|-------|-----|
-| I=-16 | -16 LUFS | Spotify/Apple podcast standard |
-| TP=-1.5 | -1.5 dB true peak | Headroom, prevents clipping |
-| LRA=11 | 11 LU range | Natural dynamics |
-| 192k | 192 kbps | Good quality for speech + music |
-
-Dynamic compression is usually unnecessary — ElevenLabs output is already well-leveled.
 
 ### Overlapping speech (advanced)
 
@@ -140,10 +152,41 @@ The same character should sound like the same person across languages — same p
 
 Python 3.13 removed the `audioop` module that pydub depends on. Use FFmpeg subprocess calls directly — it's faster, has no Python version constraints, and is the industry standard anyway.
 
+## Qwen3-TTS Notes
+
+- Excellent for English and German, no Dutch support
+- Runs on GPU server (`source qwen-tts-env/bin/activate`)
+- 1.7B model, needs ~9GB VRAM
+- Voice cloning via ref audio + ref text transcript
+
+### Critical: ref_text must match ref_audio exactly
+
+Qwen3-TTS voice cloning requires the `ref_text` parameter to be the **actual transcript** of the reference audio. Mismatched text causes runaway generation where the model never emits a stop token.
+
+**Solution**: Generate reference samples via ElevenLabs with known text, then use that exact text as `ref_text`:
+
+```bash
+# Generate refs (run locally, uses ElevenLabs API)
+cd generator/elevenlabs
+python generate_qwen_refs.py
+
+# Upload to GPU server
+scp qwen_refs/*.mp3 gpu-server:~/voice_refs/qwen_refs/
+```
+
+Always set `max_new_tokens=240` (~20s cap) as a safeguard against runaway generation.
+
+### TTS pronunciation tips
+
+- Use "Mondrian" not "Mondriaan" for English — TTS mispronounces the Dutch spelling
+- Drop first names that TTS struggles with (e.g., "Piet") when context is clear
+- Split long monologues into separate sentences with pauses for natural delivery
+
 ## Chatterbox Notes
 
-- Excellent for English, poor for Dutch
-- Runs on a GPU server, not locally
+- Excellent for English, poor for Dutch and German
+- Runs on GPU server (`source vox-env/bin/activate`)
 - Voice refs synced to the GPU server for cloning
 - No audio tag support — emotion comes from voice reference selection only
+- Clones speaking pace from reference audio — use refs with natural conversational pacing
 - Includes its own mastering pipeline (compression + loudnorm at -16 LUFS)

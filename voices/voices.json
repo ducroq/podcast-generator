@@ -244,6 +244,22 @@
       "source": "ElevenLabs Voice Design v3 (synthetic)",
       "synthetic": true,
       "use_case": "Dutch narration, professional content"
+    },
+    "emma-en": {
+      "file": "emma_en.mp3",
+      "description": "Female, early 30s, international neutral English, warm and curious host",
+      "source": "ElevenLabs Voice Design v3 (synthetic)",
+      "synthetic": true,
+      "use_case": "Mondriaan podcast English episodes, host/presenter",
+      "project": "mondriaan"
+    },
+    "lucas-en": {
+      "file": "lucas_en.mp3",
+      "description": "Male, 38-42, international neutral English, knowledgeable art history expert",
+      "source": "ElevenLabs Voice Design v3 (synthetic)",
+      "synthetic": true,
+      "use_case": "Mondriaan podcast English episodes, expert role",
+      "project": "mondriaan"
     }
   },
   "notes": {
