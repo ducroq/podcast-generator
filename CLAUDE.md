@@ -25,6 +25,9 @@ Methodology and toolkit for producing AI-generated podcasts. Shared voice librar
 ```
 generator/elevenlabs/     → Primary TTS engine (multilingual, paid API)
 generator/chatterbox/     → English-only TTS (free, requires GPU)
+generator/whisper/        → Whisper STT (transcription)
+generator/asr_*.py        → ASR comparison scripts (Whisper vs Qwen3-ASR)
+generator/qwen_bootstrap_refs.py → Bootstrap matched refs for Qwen3-TTS
 generator/trim_silences.py → Post-processing (works with any engine)
 voices/                   → Master voice library (voices.json + designs/ + *.mp3)
 podcasts/                 → Per-podcast projects (scripts + generated audio)

@@ -17,6 +17,13 @@ node_modules/
 dist/
 .astro/
 
+# Claude Code
+.claude/
+memory/
+
+# Generated output
+output/
+
 # IDE
 .vscode/
 .idea/

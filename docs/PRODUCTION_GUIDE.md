@@ -163,14 +163,17 @@ Python 3.13 removed the `audioop` module that pydub depends on. Use FFmpeg subpr
 
 Qwen3-TTS voice cloning requires the `ref_text` parameter to be the **actual transcript** of the reference audio. Mismatched text causes runaway generation where the model never emits a stop token.
 
-**Solution**: Generate reference samples via ElevenLabs with known text, then use that exact text as `ref_text`:
+**Solutions** (choose one):
+
+1. **ASR transcription** (preferred, free): Transcribe existing voice refs with Whisper or Qwen3-ASR, then use the transcript as `ref_text`. Scripts: `generator/asr_whisper.py`, `generator/asr_qwen.py`.
+2. **ElevenLabs generation**: Generate reference samples with known text via ElevenLabs, then use that exact text as `ref_text`. Script: `generator/elevenlabs/generate_qwen_refs.py`.
 
 ```bash
-# Generate refs (run locally, uses ElevenLabs API)
-cd generator/elevenlabs
-python generate_qwen_refs.py
+# Option 1: Transcribe existing refs (on GPU server)
+source vox-env/bin/activate && python asr_whisper.py
 
-# Upload to GPU server
+# Option 2: Generate refs with ElevenLabs (run locally)
+cd generator/elevenlabs && python generate_qwen_refs.py
 scp qwen_refs/*.mp3 gpu-server:~/voice_refs/qwen_refs/
 ```
 

@@ -29,9 +29,10 @@ Two guides capture the production knowledge:
 | Engine | Best for | Quality | Cost |
 |--------|----------|---------|------|
 | **ElevenLabs** | Multilingual, Dutch, German | Excellent | Paid API |
-| **Chatterbox** | English podcasts | Excellent | Free (GPU required) |
+| **Qwen3-TTS** | English, German | Excellent | Free (GPU required) |
+| **Chatterbox** | English podcasts | Good | Free (GPU required) |
 
-ElevenLabs' `text_to_dialogue` API is the key — it understands conversation context and audio tags, producing natural speaker transitions that per-line generation can't match.
+ElevenLabs' `text_to_dialogue` API is the key — it understands conversation context and audio tags, producing natural speaker transitions that per-line generation can't match. Qwen3-TTS is an excellent free alternative for English and German, with voice cloning via reference audio.
 
 ### CLI Tools
 
@@ -86,11 +87,17 @@ podcast-generator/
 │   │   ├── generate_episode.py      # Full episode generator
 │   │   ├── generate_single_line.py  # Single-line repair tool
 │   │   ├── generate_voice_samples.py
+│   │   ├── generate_qwen_refs.py    # Generate ref audio for Qwen3-TTS
 │   │   ├── test_voice.py            # Voice ID tester
 │   │   ├── src/                     # Shared modules
 │   │   └── .env.example             # Configuration template
 │   ├── chatterbox/                  # Chatterbox TTS (English, GPU)
 │   │   └── generate_podcast.py
+│   ├── whisper/                     # Whisper STT (transcription)
+│   │   └── transcribe.py
+│   ├── asr_whisper.py               # Batch transcribe with Whisper
+│   ├── asr_qwen.py                  # Batch transcribe with Qwen3-ASR
+│   ├── qwen_bootstrap_refs.py       # Bootstrap matched refs for Qwen3-TTS
 │   └── trim_silences.py             # Post-processing: shorten pauses
 ├── voices/                          # Master voice library
 │   ├── voices.json                  # Full metadata for all voices
