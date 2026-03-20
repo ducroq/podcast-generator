@@ -51,8 +51,59 @@ python generator/trim_silences.py input.mp3 output.mp3 --no-loudnorm
 ffmpeg -i mix.mp3 -af "loudnorm=I=-16:TP=-1.5:LRA=11" -codec:a libmp3lame -b:a 192k final.mp3
 ```
 
-## Voice Library
+## Voice Library (100% Synthetic, 30 voices)
 
 Voice IDs are configured in `generator/elevenlabs/.env` with language suffixes: `VOICE_EMMA`, `VOICE_EMMA_DE`, `VOICE_EMMA_EN`. The `--lang` flag auto-selects the right variant.
 
 Every voice needs a character design (`voices/designs/`) before generation. Same character, same personality across languages — only the language changes.
+
+| Voice | Description | Project | Source |
+|-------|-------------|---------|--------|
+| alex.mp3 | Male host, warm, mid-Atlantic accent | It Is Both | ElevenLabs v3 |
+| alex-dutch.mp3 | Male host, Dutch-European accent variant | It Is Both | ElevenLabs v3 |
+| alex-english.mp3 | Male host, neutral English variant | It Is Both | ElevenLabs v3 |
+| daan_en.mp3 | Male, English with subtle Dutch accent, news anchor | ovr.news | ElevenLabs v3 |
+| daan_nl.mp3 | Male, warm Dutch news anchor (ABN) | ovr.news | ElevenLabs v3 |
+| ember.mp3 | Female, Southern US accent | General | ElevenLabs |
+| emma.mp3 | Female, Dutch accent | General | ElevenLabs |
+| emma_english_sample.mp3 | Female, English bilingual sample | General | ElevenLabs |
+| emma_nl_sample.mp3 | Female, Dutch bilingual sample | General | ElevenLabs |
+| felix.mp3 | Male, warm baritone, wonder narrator, accent-free | Sol Invictus | ElevenLabs v3 |
+| hugo.mp3 | Male, enthusiastic and professional | General | ElevenLabs v3 |
+| jann.mp3 | Male, calm, confident and natural | General | ElevenLabs v3 |
+| lisa.mp3 | Female host, warm, clear English | General | ElevenLabs |
+| lucas.mp3 | Male, alternative host voice | General | ElevenLabs v3 |
+| lucas_english_sample.mp3 | Male, English bilingual sample | General | ElevenLabs v3 |
+| lucas_nl_sample.mp3 | Male, Dutch bilingual sample | General | ElevenLabs v3 |
+| marc.mp3 | Male expert, calm, Dutch accent | General | ElevenLabs |
+| narrator.mp3 | Male, neutral, clear English | General | Chatterbox native |
+| oma.mp3 | Female, 55+, wise Dutch storyteller | Busara | ElevenLabs v3 |
+| piet_english_sample.mp3 | Male, English bilingual sample | General | ElevenLabs v3 |
+| piet_nl_sample.mp3 | Male, Dutch bilingual sample | General | ElevenLabs v3 |
+| professor.mp3 | Male, 50+, measured academic, European accent | Digital Engineers | ElevenLabs v3 |
+| ruth.mp3 | Female, friendly children's storyteller | Busara | ElevenLabs v3 |
+| serafina.mp3 | Female, sensual and expressive | General | ElevenLabs v3 |
+| serge.mp3 | Male, professional Dutch narrator | General | ElevenLabs v3 |
+| sofie_en.mp3 | Female, professional anchor, subtle Dutch accent | ovr.news | ElevenLabs v3 |
+| sofie_nl.mp3 | Female, professional Dutch news anchor | ovr.news | ElevenLabs v3 |
+| sven.mp3 | Male student, skeptical, Dutch | General | ElevenLabs |
+| victoria.mp3 | Female, British accent | General | ElevenLabs |
+| zara.mp3 | Female, 23-28, energetic, accent-free | Grad Career | ElevenLabs v3 |
+
+## TTS Engines (Tested)
+
+| Engine | English | Dutch | Voice Cloning | Verdict |
+|--------|---------|-------|---------------|---------|
+| **Chatterbox** | Excellent | Bad | Yes | Best open-source for English |
+| **Qwen3-TTS** | Excellent | - | Yes | Free, requires GPU, needs matched ref_text |
+| **TADA** | Untested | - | Yes | HumeAI, 1:1 alignment, no hallucination claim |
+| StyleTTS2 | Poor | - | Yes | Not recommended |
+| Coqui XTTS | Good | Mediocre | Yes | Too many issues |
+| ElevenLabs | Excellent | Good | Yes | Best overall (paid) |
+| NotebookLM | Excellent | Excellent | No | Google's podcast generator |
+
+## Workflow
+
+- **English podcasts (local)**: Chatterbox or Qwen3-TTS on gpu-server (free, GPU)
+- **Dutch podcasts**: ElevenLabs or NotebookLM
+- **gpu-server access**: `ssh gpu-server` (Tailscale, user: hcl)
