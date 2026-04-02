@@ -5,7 +5,7 @@ Shared production knowledge distilled from the Mondriaan podcast project (7 epis
 ## Pipeline
 
 ```
-Script → Generate (ElevenLabs, Qwen3-TTS, or Chatterbox) → Trim silences → Mix music in DAW → Master with FFmpeg
+Script → Generate (ElevenLabs, Chatterbox, or Qwen) → Validate → Trim silences → Add realism → Mix music in DAW → Master with FFmpeg
 ```
 
 Each step is independent — you can retry any phase without redoing the others.
@@ -69,6 +69,54 @@ python generator/trim_silences.py input.mp3 output.mp3 --no-loudnorm
 ```
 
 **Never loudnorm at this stage** — that's always the final step.
+
+### Validate TTS output (after generation, before trim)
+
+Qwen3-TTS can hallucinate — prepend extra text at the start of output. Always validate before continuing the pipeline, especially for Qwen-generated audio.
+
+```bash
+# Single file
+python generator/validate_tts.py output.wav "The exact text you asked it to say"
+
+# Batch via manifest (JSON array of {file, text} pairs)
+python generator/validate_tts.py . --manifest manifest.json
+```
+
+The script transcribes output with Whisper and checks for:
+- Extra words at start/end (hallucination)
+- Low word overlap with expected text
+- Suspicious duration (too long = runaway, too short = silent)
+
+Exit code is 1 if any file is flagged — use in scripts to auto-retry.
+
+**Mitigating Qwen hallucinations**: pass `temperature=0.7, repetition_penalty=1.2` to `generate_voice_clone()`.
+
+### Add realism (after trim, before mixing)
+
+Breaks the robotic sequential feel of TTS output:
+
+```bash
+# Preview effects without processing
+python generator/add_realism.py input.mp3 --dry-run --seed 42
+
+# Default settings (15% overlap, ±50-150ms jitter, pink noise room tone)
+python generator/add_realism.py input.mp3 output.mp3 --seed 42
+
+# More overlaps for heated debate
+python generator/add_realism.py input.mp3 output.mp3 --overlap-chance 0.25 --seed 42
+
+# With filler sounds (uh, mmhm, etc.)
+python generator/add_realism.py input.mp3 output.mp3 --fillers-dir sounds/fillers/ --seed 42
+```
+
+| Effect | What | Default |
+|--------|------|---------|
+| Overlaps | Pull next speaker's start earlier so voices briefly collide | 15% of turns, 300-800ms |
+| Jitter | Vary pause durations so timing isn't metronomic | ±50-150ms |
+| Room tone | Synthetic pink noise underneath | On (use `--no-room-tone` to skip) |
+| Fillers | Insert "uh", "mmhm" under long monologues | Off (needs `--fillers-dir`) |
+
+Use `--seed` for reproducible results. The room tone here is lighter than the mastering chain's noise floor — they stack fine.
 
 ### Master (after mixing music, always last)
 

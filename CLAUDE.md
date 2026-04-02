@@ -1,15 +1,20 @@
 # Podcast Generator
 
-Methodology and toolkit for producing AI-generated podcasts. Shared voice library (30+ synthetic voices), ElevenLabs and Chatterbox TTS engines, and guides for narrative design and production.
+<!-- agent-ready-projects: v1.3.4 -->
+
+Methodology and toolkit for producing AI-generated podcasts. Shared voice library (30+ synthetic voices), multiple TTS engines (ElevenLabs, Chatterbox, TADA), and guides for narrative design and production.
 
 ## Before You Start
 
 | When | Read |
 |------|------|
 | Writing or reviewing a script | `docs/NARRATIVE_DESIGN.md` — three-voice model, dialogue dynamics, emotional arcs |
-| Generating audio or post-processing | `docs/PRODUCTION_GUIDE.md` — TTS engine choice, audio tags, silence trimming, mastering |
+| Generating audio or post-processing | `docs/PRODUCTION_GUIDE.md` — TTS engine choice, audio tags, silence trimming, realism, mastering |
 | Creating a new voice | `voices/designs/TEMPLATE.md` — character brief format, ElevenLabs Voice Design settings |
 | Adding a new podcast project | `README.md` — project structure and getting started |
+| Stuck or debugging | `memory/gotcha-log.md` — problem-fix archive |
+| Running generators on gpu-server | `docs/RUNBOOK.md` — venv paths, model loading, disk/VRAM constraints |
+| Ending a session | Run `/curate` — review gotchas, promote patterns, update memory |
 
 ## Hard Constraints
 
@@ -25,9 +30,12 @@ Methodology and toolkit for producing AI-generated podcasts. Shared voice librar
 ```
 generator/elevenlabs/     → Primary TTS engine (multilingual, paid API)
 generator/chatterbox/     → English-only TTS (free, requires GPU)
+generator/tada/           → TADA TTS (English + German, free, requires GPU)
 generator/whisper/        → Whisper STT (transcription)
 generator/asr_*.py        → ASR comparison scripts (Whisper vs Qwen3-ASR)
 generator/qwen_bootstrap_refs.py → Bootstrap matched refs for Qwen3-TTS
+generator/add_realism.py  → Post-processing: overlaps, jitter, room tone
+generator/validate_tts.py → Hallucination detection: ASR check against expected text
 generator/trim_silences.py → Post-processing (works with any engine)
 voices/                   → Master voice library (voices.json + designs/ + *.mp3)
 podcasts/                 → Per-podcast projects (scripts + generated audio)
@@ -92,18 +100,91 @@ Every voice needs a character design (`voices/designs/`) before generation. Same
 
 ## TTS Engines (Tested)
 
-| Engine | English | Dutch | Voice Cloning | Verdict |
-|--------|---------|-------|---------------|---------|
-| **Chatterbox** | Excellent | Bad | Yes | Best open-source for English |
-| **Qwen3-TTS** | Excellent | - | Yes | Free, requires GPU, needs matched ref_text |
-| **TADA** | Untested | - | Yes | HumeAI, 1:1 alignment, no hallucination claim |
-| StyleTTS2 | Poor | - | Yes | Not recommended |
-| Coqui XTTS | Good | Mediocre | Yes | Too many issues |
-| ElevenLabs | Excellent | Good | Yes | Best overall (paid) |
-| NotebookLM | Excellent | Excellent | No | Google's podcast generator |
+| Engine | English | Dutch | German | Voice Cloning | Verdict |
+|--------|---------|-------|--------|---------------|---------|
+| **Qwen3-TTS** | Excellent | No | Good | Yes | Best open-source overall (blind test winner, free, `pip install qwen-tts`) |
+| **Chatterbox** | Excellent | Bad | - | Yes | Close second, very competitive on male voices |
+| **TADA** | Good | No | Good | Yes | Fast (3-6x RT), no hallucination, but loses to both Qwen and Chatterbox |
+| StyleTTS2 | Poor | - | - | Yes | Not recommended |
+| Coqui XTTS | Good | Mediocre | - | Yes | Too many issues |
+| ElevenLabs | Excellent | Good | Good | Yes | Best overall (paid) |
+| NotebookLM | Excellent | Excellent | - | No | Google's podcast generator |
+
+### Blind A/B Test Results (2026-04-01/02)
+
+**TADA vs Chatterbox** (Lisa, Sven, Marc — 9 comparisons):
+- **Chatterbox 8.5 — TADA 0.5** — Chatterbox dominates
+
+**Qwen vs Chatterbox** (10 voices, 30 comparisons):
+- **Chatterbox 17.5 — Qwen 12** — Chatterbox wins overall
+- Qwen wins: Lisa (2.5–0.5), Zara (3–0), Sofie (2–1)
+- Chatterbox wins: Emma (3–0), Lucas (3–0), Victoria (2.5–0.5), Felix (2.5–0.5), Ember (2–1), Marc (1.5–1)
+- Tie: Sven (1.5–1.5)
+- **Qwen hallucination issue**: prepends extra text on some samples (seen on Lucas)
+
+### Recommended Engine Per Voice
+
+Use different engines for different voices based on blind test results:
+
+| Voice | Best Engine | Notes |
+|-------|------------|-------|
+| Lisa | Qwen | Strong preference |
+| Zara | Qwen | Clean sweep |
+| Sofie | Qwen | Slight edge |
+| Sven | Either | Dead even |
+| Emma | Chatterbox | Clean sweep |
+| Lucas | Chatterbox | Clean sweep, Qwen hallucinated |
+| Felix | Chatterbox | Strong preference |
+| Victoria | Chatterbox | Strong preference |
+| Ember | Chatterbox | |
+| Marc | Chatterbox | Slight edge |
+
+### Qwen3-TTS Notes
+
+- **Install**: `pip install qwen-tts` (NOT via transformers directly)
+- Uses `Qwen3TTSModel.from_pretrained("Qwen/Qwen3-TTS-12Hz-1.7B-Base")`
+- Voice cloning via `model.generate_voice_clone(text=..., language="English", ref_audio=..., ref_text=...)`
+- **ref_text must match ref_audio** — transcribe with Whisper first, trim ref to clean sentence boundaries
+- ~4GB VRAM, ~1-1.4x real-time on RTX 4080
+- No Dutch support
+- Previous runaway issues were caused by using raw transformers instead of the `qwen-tts` package
+- **Hallucination risk**: may prepend extra text to output. Mitigate with `temperature=0.7`, `repetition_penalty=1.2`. Always validate output with ASR transcription check
+
+### TADA Notes (archived — env removed)
+
+- Lost blind test decisively, env deleted to free disk space
+- Can be reinstalled with `pip install hume-tada` if needed for German
+- 10 languages but no Dutch — English and German confirmed working
+- No audio tags — expressiveness from reference clip only
+
+## Post-Processing Pipeline
+
+```
+Generate → Trim silences → Add realism → Mix music in DAW → Master with FFmpeg
+```
+
+### add_realism.py (after trim_silences, before mixing)
+
+Automatically adds natural podcast feel to generated audio:
+- Randomly overlaps speaker turns (~15% of turns, 300-800ms)
+- Jitters pause timing (±50-150ms) to break metronomic feel
+- Synthetic pink noise room tone underneath
+- Optional filler sounds ("uh", "mmhm") from audio directory
+
+```bash
+# Preview what will happen
+python generator/add_realism.py input.mp3 --dry-run --seed 42
+
+# Process
+python generator/add_realism.py input.mp3 output.mp3 --seed 42
+
+# Tune: more overlaps for heated debate, less for calm interview
+python generator/add_realism.py input.mp3 output.mp3 --overlap-chance 0.25 --seed 42
+```
 
 ## Workflow
 
-- **English podcasts (local)**: Chatterbox or Qwen3-TTS on gpu-server (free, GPU)
+- **English podcasts (local)**: Qwen3-TTS or Chatterbox on gpu-server (use per-voice recommendation table above)
+- **German podcasts**: Qwen3-TTS or ElevenLabs on gpu-server
 - **Dutch podcasts**: ElevenLabs or NotebookLM
 - **gpu-server access**: `ssh gpu-server` (Tailscale, user: hcl)

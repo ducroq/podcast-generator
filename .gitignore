@@ -17,9 +17,8 @@ node_modules/
 dist/
 .astro/
 
-# Claude Code
+# Claude Code (user-specific)
 .claude/
-memory/
 
 # Generated output
 output/
