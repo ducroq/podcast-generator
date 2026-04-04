@@ -90,6 +90,16 @@
 **Root cause**: Single-pass dialogue models optimize for turn-taking dynamics at the expense of per-voice audio quality. The 2B model is too small to match dedicated per-voice engines.
 **Fix**: No fix — this is a model limitation. Closed issue #4. Keep per-line pipeline with Chatterbox/Qwen/ElevenLabs. Revisit when models mature.
 
+### Custom room tone [room] label was never valid ffmpeg syntax [RESOLVED] (2026-04-04)
+**Problem**: `build_filter_complex()` referenced custom room tone as `[room]` in the filter graph, which isn't a valid ffmpeg input label. Only synthetic pink noise (anoisesrc) worked because it doesn't reference an input file.
+**Root cause**: The room tone input was added as `-i room_tone.wav` but referenced with a made-up label `[room]` instead of `[1:a]`. Nobody caught it because custom room tone was never tested (only synthetic pink noise was used in practice).
+**Fix**: Room tone now tracked via `room_tone_input_idx` and referenced as `[N:a]`. Input ordering is: [0]=main audio, [1]=room tone (if present), [2+]=fillers.
+
+### Filler insertion was completely stubbed out [RESOLVED] (2026-04-04)
+**Problem**: `plan_realism()` assigned filler files to actions, but `build_filter_complex()` never rendered them. The `filler_inputs` parameter was dead code. The dry-run output even showed "Filler insertions: N" but zero fillers appeared in the output.
+**Root cause**: Original implementation planned fillers but the ffmpeg rendering was never completed. The `filler_input_offset` variable was initialized but unused.
+**Fix**: After concatenation, each filler is added as an extra ffmpeg input, delayed to its absolute timeline position (30-70% through the turn), and mixed at 0.3 volume via `amix`.
+
 ## Promoted
 
 <!-- Track gotchas that have been promoted to topic files or the memory index.

@@ -1,5 +1,10 @@
 # Backlog
 
+## Bug Sweep (2026-04-04) [RESOLVED]
+- Closed 10 issues in one session: #1-3 (quality checks already done), #5 (filler rendering), #6 (room tone duration), #7 (overlap default), #8 (emotion tags), #9 (stereo/mono), #10 (unknown speaker warning), #13 (section regex)
+- Also fixed: custom room tone [room] label (pre-existing bug), room tone input overwriting filler inputs
+- Tests: 80 → 104, all passing
+
 ## GPU Server Disk Space [RESOLVED]
 - Cleaned from 99% to 78% (35GB free) on 2026-04-02
 - Removed: pip cache (18GB), TADA models, unused Qwen 0.6B, whisper-large

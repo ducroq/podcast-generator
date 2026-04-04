@@ -33,19 +33,19 @@ generator/elevenlabs/           → Primary TTS engine (multilingual, paid API)
   src/voice_config.py           → Voice ID mapping from .env
   src/dialogue_parser.py        → Script parser
 generator/chatterbox/           → English-only TTS (free, requires GPU)
-generator/tada/                 → TADA TTS (archived — env removed)
+generator/tada/                 → TADA TTS (archived — env and directory removed)
 generator/whisper/              → Whisper STT (transcription)
 generator/audio_utils.py        → Shared ffmpeg helpers (detect_silences, get_duration, get_sample_rate)
 generator/quality_checks.py     → Optional quality checks (UTMOS MOS, speaker similarity, language ID)
 generator/validate_tts.py       → Validation pipeline: ASR + quality checks → validation.json
 generator/_transcribe_worker.py → Whisper subprocess worker (avoids code injection)
-generator/add_realism.py        → Post-processing: overlaps, jitter, room tone
+generator/add_realism.py        → Post-processing: overlaps, fillers, jitter, room tone
 generator/trim_silences.py      → Silence trimming (loudnorm OFF by default)
 generator/asr_*.py              → ASR comparison scripts (Whisper vs Qwen3-ASR)
 generator/qwen_bootstrap_refs.py → Bootstrap matched refs for Qwen3-TTS
 voices/                         → Master voice library (voices.json + designs/ + *.mp3)
 podcasts/                       → Per-podcast projects (scripts + generated audio)
-tests/                          → Test suite (80 tests, ~4s, no GPU needed)
+tests/                          → Test suite (104 tests, ~7s, no GPU needed)
 docs/                           → Methodology guides
 ```
 
@@ -87,7 +87,7 @@ Results appear in `validation.json` under the `quality` field per entry.
 ## Testing
 
 ```bash
-python -m pytest tests/ -v  # 80 tests, ~4 seconds, no GPU needed
+python -m pytest tests/ -v  # 104 tests, ~4 seconds, no GPU needed
 ```
 
 Covers: audio_utils, voice_settings, hallucination detection, validation reports, add_realism filter graphs (end-to-end ffmpeg), trim_silences, full pipeline chain.
