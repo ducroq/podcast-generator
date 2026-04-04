@@ -144,12 +144,16 @@ def build_filter_complex(turns, actions, total_duration, sample_rate,
         extra_inputs.extend(['-i', str(room_tone_path)])
         next_input_idx += 1
 
+    # Force input to mono to avoid channel mismatch with generated silence pads
+    # and noise sources (Chatterbox can output stereo, ElevenLabs outputs mono)
+    filters.append('[0:a]aformat=channel_layouts=mono[inmono]')
+
     for i, (turn, action) in enumerate(zip(turns, actions)):
         seg_label = f's{i}'
 
         # Extract this turn's audio
         filters.append(
-            f'[0:a]atrim={turn["start"]:.6f}:{turn["end"]:.6f},'
+            f'[inmono]atrim={turn["start"]:.6f}:{turn["end"]:.6f},'
             f'asetpts=N/SR/TB[{seg_label}]'
         )
 
@@ -220,7 +224,8 @@ def build_filter_complex(turns, actions, total_duration, sample_rate,
             filler_label = f'filler{i}'
             mix_label = f'fmix{i}'
             filters.append(
-                f'[{filler_idx}:a]volume=0.3,adelay={delay_ms}|{delay_ms}[{filler_label}]'
+                f'[{filler_idx}:a]aformat=channel_layouts=mono,'
+                f'volume=0.3,adelay={delay_ms}|{delay_ms}[{filler_label}]'
             )
             filters.append(
                 f'[{out_label}][{filler_label}]amix=inputs=2:duration=first[{mix_label}]'
@@ -232,7 +237,8 @@ def build_filter_complex(turns, actions, total_duration, sample_rate,
         if room_tone_input_idx is not None:
             # Loop room tone to match duration, mix at low volume
             filters.append(
-                f'[{room_tone_input_idx}:a]aloop=loop=-1:size=2e9,'
+                f'[{room_tone_input_idx}:a]aformat=channel_layouts=mono,'
+                f'aloop=loop=-1:size=2e9,'
                 f'atrim=duration={total_duration:.6f},'
                 f'volume={room_tone_vol}[roomvol]'
             )

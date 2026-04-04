@@ -109,6 +109,22 @@ class TestSilencePad:
 
 
 class TestBuildFilterComplex:
+    def test_input_forced_to_mono(self):
+        turns = [
+            {"start": 0, "end": 1, "duration": 1, "gap_after": 0},
+        ]
+        actions = [
+            {"turn_idx": 0, "action": "normal", "overlap_ms": 0, "jitter_ms": 0, "filler_file": None},
+        ]
+        filters, _, _ = build_filter_complex(
+            turns, actions, 1.0, 44100, no_room_tone=True,
+        )
+        combined = ";".join(filters)
+        # Input should be forced to mono before any processing
+        assert "[0:a]aformat=channel_layouts=mono[inmono]" in combined
+        # Turn extraction should reference [inmono], not [0:a]
+        assert "[inmono]atrim=" in combined
+
     def test_basic_structure(self):
         turns = [
             {"start": 0, "end": 1, "duration": 1, "gap_after": 0.5},
@@ -296,5 +312,45 @@ class TestEndToEndFilterGraph:
         ]
         result = subprocess.run(cmd, capture_output=True, text=True)
         assert result.returncode == 0, f"ffmpeg failed:\n{result.stderr[-500:]}"
+        assert output_path.exists()
+        assert output_path.stat().st_size > 0
+
+    def test_stereo_input_handled_gracefully(self, tmp_audio_stereo):
+        """Stereo input (e.g. from Chatterbox) should be downmixed to mono without error."""
+        import subprocess
+        from audio_utils import detect_silences, get_duration, get_sample_rate
+
+        duration = get_duration(tmp_audio_stereo)
+        sample_rate = get_sample_rate(tmp_audio_stereo)
+        silences = detect_silences(tmp_audio_stereo, noise_db=-30, min_duration=0.2)
+
+        if len(silences) < 2:
+            import pytest
+            pytest.skip("Not enough silences detected in test fixture")
+
+        turns = split_into_turns(silences, duration)
+
+        random.seed(42)
+        actions = plan_realism(
+            turns, overlap_chance=0.5, overlap_range_ms=(100, 300),
+            jitter_range_ms=(20, 50), filler_chance=0, fillers_available=[],
+        )
+
+        filters, out_label, extra_inputs = build_filter_complex(
+            turns, actions, duration, sample_rate, no_room_tone=False,
+        )
+
+        filter_complex = ";".join(filters)
+        output_path = tmp_audio_stereo.parent / "stereo_realism_output.wav"
+
+        cmd = [
+            "ffmpeg", "-y", "-i", str(tmp_audio_stereo),
+            *extra_inputs,
+            "-filter_complex", filter_complex,
+            "-map", f"[{out_label}]",
+            str(output_path),
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        assert result.returncode == 0, f"ffmpeg failed on stereo input:\n{result.stderr[-500:]}"
         assert output_path.exists()
         assert output_path.stat().st_size > 0
