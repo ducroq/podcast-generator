@@ -13,6 +13,10 @@ def detect_silences(input_path, noise_db=-35, min_duration=0.3):
     ]
     result = subprocess.run(cmd, capture_output=True, text=True)
 
+    # ffmpeg returns 0 even on silencedetect, but check for total failure
+    if result.returncode != 0 and 'silencedetect' not in result.stderr:
+        raise RuntimeError(f"ffmpeg silencedetect failed on {input_path}: {result.stderr[:200]}")
+
     silences = []
     starts = []
     for line in result.stderr.split('\n'):

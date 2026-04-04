@@ -82,7 +82,7 @@ def check_hallucination(expected_text, transcribed_text):
             if transcribed_words[i] == last_expected:
                 append_start = i + 1
                 break
-        if append_start is not None and append_start < len(transcribed_words) - 1:
+        if append_start is not None and append_start < len(transcribed_words):
             extra = " ".join(transcribed_words[append_start:])
             issues.append(f"HALLUCINATION_END: extra words at end: \"{extra}\"")
 
@@ -105,6 +105,13 @@ def check_hallucination(expected_text, transcribed_text):
     return is_ok, issues
 
 
+WORD_DURATION = {
+    "en": 0.35,
+    "de": 0.45,  # German has longer compound words
+    "nl": 0.35,
+}
+
+
 def validate_single(audio_path, expected_text, language="en"):
     """Validate a single audio file. Returns dict with results."""
     audio_path = Path(audio_path)
@@ -114,9 +121,9 @@ def validate_single(audio_path, expected_text, language="en"):
 
     duration = get_duration(audio_path)
 
-    # Expected duration: ~0.3s per word for natural speech
+    # Expected duration varies by language
     expected_words = len(expected_text.split())
-    expected_duration = expected_words * 0.35
+    expected_duration = expected_words * WORD_DURATION.get(language, 0.35)
     duration_ratio = duration / max(expected_duration, 0.1)
 
     transcription = transcribe(str(audio_path), language=language)

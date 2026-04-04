@@ -18,7 +18,7 @@ from elevenlabs.types import DialogueInput
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR))
-from src.voice_settings import get_voice_settings, parse_line, BASE_SIMILARITY, SPEED_ADJUSTMENT
+from src.voice_settings import get_voice_settings, parse_line, BASE_SIMILARITY, STABILITY_OFFSET
 
 load_dotenv(SCRIPT_DIR / '.env')
 client = ElevenLabs(api_key=os.getenv('ELEVENLABS_API_KEY'))
@@ -89,7 +89,7 @@ def generate_section(script_path, section_name, output_path):
         return False
 
     print(f"Lines: {len(dialogue_inputs)}")
-    print(f"Settings: similarity={BASE_SIMILARITY}, speed={SPEED_ADJUSTMENT}")
+    print(f"Settings: similarity={BASE_SIMILARITY}, stability_offset={STABILITY_OFFSET}")
     print(f"Generating audio...")
 
     # Generate audio using text_to_dialogue (best quality)
@@ -154,10 +154,12 @@ Examples:
     lang = args.lang
     if lang:
         VOICE_IDS = load_voice_ids(lang)
-        missing = [k for k, v in VOICE_IDS.items() if not v]
-        if missing:
-            print(f"ERROR: Missing voice IDs for --lang {lang}: {', '.join(f'VOICE_{s.upper()}_{lang.upper()}' for s in missing)}")
-            sys.exit(1)
+    # Always check for missing voice IDs
+    missing = [k for k, v in VOICE_IDS.items() if not v]
+    if missing:
+        suffix = f"_{lang.upper()}" if lang else ""
+        print(f"ERROR: Missing voice IDs: {', '.join(f'VOICE_{s.upper()}{suffix}' for s in missing)}")
+        sys.exit(1)
 
     # Filter to specific section if requested
     if args.section:
@@ -189,6 +191,8 @@ Examples:
 
     for idx, section_name in enumerate(sections, 1):
         section_slug = re.sub(r'[^a-z0-9_\-]', '', section_name.replace(' ', '_').lower())
+        if not section_slug:
+            section_slug = f"section"
         output_file = output_dir / f"{episode_name}_{idx}_{section_slug}.mp3"
 
         success = generate_section(script_path, section_name, output_file)

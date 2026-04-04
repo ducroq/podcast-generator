@@ -40,7 +40,7 @@ def split_into_turns(silences, total_duration):
     current_pos = 0.0
 
     for silence in silences:
-        if silence['start'] > current_pos + 0.05:
+        if silence['start'] >= current_pos + 0.01:
             turns.append({
                 'start': current_pos,
                 'end': silence['start'],
@@ -110,9 +110,22 @@ def plan_realism(turns, overlap_chance, overlap_range_ms, jitter_range_ms,
     return actions
 
 
+def _silence_pad(sample_rate, duration, label):
+    """Generate a silence pad filter as two properly separated filters.
+
+    anullsrc is a source filter and cannot be comma-chained with atrim.
+    Returns a list of filter strings to be joined with ';'.
+    """
+    null_label = f'null_{label}'
+    return [
+        f'anullsrc=r={sample_rate}:cl=mono[{null_label}]',
+        f'[{null_label}]atrim=duration={duration:.6f}[{label}]',
+    ]
+
+
 def build_filter_complex(turns, actions, total_duration, sample_rate,
                          room_tone_path=None, room_tone_vol=0.08,
-                         no_room_tone=False):
+                         no_room_tone=False, filler_inputs=None):
     """Build ffmpeg filter_complex string for all realism effects.
 
     Strategy: extract each turn as a segment, adjust timing between segments,
@@ -122,6 +135,10 @@ def build_filter_complex(turns, actions, total_duration, sample_rate,
     filters = []
     segments = []
     extra_inputs = []
+    # Track filler input indices (they come after main audio and optional room tone)
+    filler_input_offset = 1  # [0] = main audio
+    if room_tone_path and not no_room_tone:
+        filler_input_offset = 2  # [1] = room tone file
 
     for i, (turn, action) in enumerate(zip(turns, actions)):
         seg_label = f's{i}'
@@ -140,27 +157,21 @@ def build_filter_complex(turns, actions, total_duration, sample_rate,
                 overlap_s = action['overlap_ms'] / 1000.0
                 remaining_gap = max(0.05, gap - overlap_s)
                 pad_label = f'pad{i}'
-                filters.append(
-                    f'anullsrc=r={sample_rate}:cl=mono,atrim=duration={remaining_gap:.6f}[{pad_label}]'
-                )
+                filters.extend(_silence_pad(sample_rate, remaining_gap, pad_label))
                 segments.append(f'[{seg_label}]')
                 segments.append(f'[{pad_label}]')
             elif action['jitter_ms'] != 0:
                 # Jitter: adjust gap duration
                 new_gap = max(0.05, gap + action['jitter_ms'] / 1000.0)
                 pad_label = f'pad{i}'
-                filters.append(
-                    f'anullsrc=r={sample_rate}:cl=mono,atrim=duration={new_gap:.6f}[{pad_label}]'
-                )
+                filters.extend(_silence_pad(sample_rate, new_gap, pad_label))
                 segments.append(f'[{seg_label}]')
                 segments.append(f'[{pad_label}]')
             else:
                 # Normal: keep original gap
                 if gap > 0.01:
                     pad_label = f'pad{i}'
-                    filters.append(
-                        f'anullsrc=r={sample_rate}:cl=mono,atrim=duration={gap:.6f}[{pad_label}]'
-                    )
+                    filters.extend(_silence_pad(sample_rate, gap, pad_label))
                     segments.append(f'[{seg_label}]')
                     segments.append(f'[{pad_label}]')
                 else:
@@ -184,7 +195,7 @@ def build_filter_complex(turns, actions, total_duration, sample_rate,
                 f'volume={room_tone_vol}[roomvol]'
             )
             filters.append(
-                f'[{out_label}][roomvol]amix=inputs=2:weights=1 {room_tone_vol}:'
+                f'[{out_label}][roomvol]amix=inputs=2:weights=1|{room_tone_vol}:'
                 f'duration=first[roomed]'
             )
             out_label = 'roomed'
@@ -196,7 +207,7 @@ def build_filter_complex(turns, actions, total_duration, sample_rate,
                 f'amplitude=0.002:duration={total_duration:.6f}[roomnoise]'
             )
             filters.append(
-                f'[{out_label}][roomnoise]amix=inputs=2:weights=1 0.12:'
+                f'[{out_label}][roomnoise]amix=inputs=2:weights=1|0.12:'
                 f'duration=first[roomed]'
             )
             out_label = 'roomed'

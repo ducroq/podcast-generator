@@ -157,7 +157,8 @@ if __name__ == '__main__':
     parser.add_argument('script', help='Path to dialogue script')
     parser.add_argument('-o', '--output', default='output.mp3', help='Output path (.mp3 or .wav)')
     parser.add_argument('--test', type=int, help='Only process first N lines')
-    parser.add_argument('--no-master', action='store_true', help='Skip mastering step')
+    parser.add_argument('--master', action='store_true',
+                        help='Apply mastering (loudnorm). Only use as final step after mixing.')
     args = parser.parse_args()
-    
-    generate_podcast(args.script, args.output, args.test, args.no_master)
+
+    generate_podcast(args.script, args.output, args.test, skip_master=not args.master)

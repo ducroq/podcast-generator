@@ -106,6 +106,7 @@ for label, script in [("en", SCRIPT_EN), ("de", SCRIPT_DE)]:
             language=voice["lang"],
             ref_audio=voice["ref"],
             ref_text=voice["ref_text"],
+            max_new_tokens=240,
         )
         sr_out = sr
         all_audio.append(wavs[0])
@@ -113,6 +114,9 @@ for label, script in [("en", SCRIPT_EN), ("de", SCRIPT_DE)]:
         all_audio.append(pause)
         sf.write(str(OUTPUT_DIR / f"{label}_{i+1:02d}_{speaker}.wav"), wavs[0], sr)
 
+    if not all_audio:
+        print(f"  WARNING: {label.upper()} script is empty, skipping.")
+        continue
     full = np.concatenate(all_audio)
     out_path = str(OUTPUT_DIR / f"mondriaan_intro_{label}_qwen.wav")
     sf.write(out_path, full, sr_out)

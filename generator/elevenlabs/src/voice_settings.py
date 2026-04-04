@@ -3,7 +3,7 @@
 from elevenlabs.types import VoiceSettings
 
 BASE_SIMILARITY = 0.95
-SPEED_ADJUSTMENT = -0.10
+STABILITY_OFFSET = -0.10
 
 EMOTIONAL_VARIANTS = {
     "emma": {
@@ -82,7 +82,7 @@ def get_voice_settings(speaker, emotion):
     variants = EMOTIONAL_VARIANTS.get(speaker, {})
     variant = variants.get(emotion, variants.get("default", {"stability": 0.4, "style": 0.4}))
 
-    adjusted_stability = max(0.15, variant["stability"] + SPEED_ADJUSTMENT)
+    adjusted_stability = max(0.15, variant["stability"] + STABILITY_OFFSET)
 
     return VoiceSettings(
         stability=adjusted_stability,

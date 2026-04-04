@@ -24,7 +24,7 @@ sys.path.insert(0, str(SCRIPT_DIR))
 from src.dialogue_parser import DialogueParser
 from src.voice_config import VoiceConfig
 from src.voice_settings import (
-    EMOTIONAL_VARIANTS, BASE_SIMILARITY, SPEED_ADJUSTMENT,
+    EMOTIONAL_VARIANTS, BASE_SIMILARITY, STABILITY_OFFSET,
     get_voice_settings,
 )
 

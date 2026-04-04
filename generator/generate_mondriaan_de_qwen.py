@@ -95,8 +95,11 @@ for i, (speaker, text) in enumerate(SCRIPT_DE):
     all_audio.append(pause)
     sf.write(str(OUTPUT_DIR / f"de_{i+1:02d}_{speaker}.wav"), wavs[0], sr)
 
-full = np.concatenate(all_audio)
-out_path = str(OUTPUT_DIR / "mondriaan_intro_de_qwen.wav")
-sf.write(out_path, full, sr_out)
-print(f"\nSaved full intro: {out_path}")
+if not all_audio:
+    print("WARNING: Script is empty, no audio generated.")
+else:
+    full = np.concatenate(all_audio)
+    out_path = str(OUTPUT_DIR / "mondriaan_intro_de_qwen.wav")
+    sf.write(out_path, full, sr_out)
+    print(f"\nSaved full intro: {out_path}")
 print("Done!")

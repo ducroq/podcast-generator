@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
 Post-process ElevenLabs text_to_dialogue output to shorten excessive pauses.
-Optionally applies loudness normalization to podcast standard (-16 LUFS).
+Loudness normalization is off by default (must be the final pipeline step).
 
 Usage:
-    python trim_silences.py input.mp3 [output.mp3] [--max-pause 0.35] [--no-loudnorm]
+    python trim_silences.py input.mp3 [output.mp3] [--max-pause 0.35] [--loudnorm]
 """
 
 import argparse
@@ -16,7 +16,7 @@ from audio_utils import detect_silences, get_duration
 
 
 def trim_silences(input_path, output_path, max_pause=0.35, noise_db=-35,
-                  min_duration=0.3, loudnorm=True):
+                  min_duration=0.3, loudnorm=False):
     """Shorten silences to max_pause duration and optionally normalize loudness."""
     silences = detect_silences(input_path, noise_db, min_duration)
 
@@ -35,10 +35,10 @@ def trim_silences(input_path, output_path, max_pause=0.35, noise_db=-35,
         if silence['start'] > current_pos:
             segments.append((current_pos, silence['start']))
 
-        # Shortened silence (keep max_pause, centered on original)
+        # Shortened silence (keep max_pause, clamped to not eat adjacent speech)
         if silence['duration'] > max_pause:
-            center = (silence['start'] + silence['end']) / 2
-            segments.append((center - max_pause / 2, center + max_pause / 2))
+            keep_start = max(silence['start'], silence['end'] - max_pause)
+            segments.append((keep_start, keep_start + max_pause))
         else:
             # Keep short silences as-is
             segments.append((silence['start'], silence['end']))
@@ -109,8 +109,8 @@ if __name__ == '__main__':
     parser.add_argument('output', nargs='?', help='Output file (default: input_processed.mp3)')
     parser.add_argument('--max-pause', type=float, default=0.35,
                         help='Maximum pause duration in seconds (default: 0.35)')
-    parser.add_argument('--no-loudnorm', action='store_true',
-                        help='Skip loudness normalization')
+    parser.add_argument('--loudnorm', action='store_true',
+                        help='Apply loudness normalization (-16 LUFS). Only use as final step after mixing.')
 
     args = parser.parse_args()
 
@@ -123,4 +123,4 @@ if __name__ == '__main__':
         input_file.with_stem(input_file.stem + '_processed')
 
     trim_silences(input_file, output_file, max_pause=args.max_pause,
-                  loudnorm=not args.no_loudnorm)
+                  loudnorm=args.loudnorm)
