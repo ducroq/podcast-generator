@@ -54,8 +54,13 @@ def generate_section(script_path, section_name, output_path):
     with open(script_path, 'r', encoding='utf-8') as f:
         content = f.read()
 
-    # Find section
-    section_pattern = r'={20,}\s*' + re.escape(section_name) + r'.*?={20,}\s*\n(.*?)(?:={20,}|$)'
+    # Find section: match header block (===\nNAME\n===) then capture until next === or EOF
+    section_pattern = (
+        r'={20,}\s*\n'
+        + re.escape(section_name)
+        + r'\s*\n={20,}\s*\n'
+        + r'(.*?)(?=\n={20,}|\Z)'
+    )
     match = re.search(section_pattern, content, re.DOTALL | re.IGNORECASE)
 
     if not match:

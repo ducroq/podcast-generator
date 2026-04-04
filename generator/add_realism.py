@@ -233,13 +233,15 @@ def build_filter_complex(turns, actions, total_duration, sample_rate,
             out_label = mix_label
 
     # Room tone: mix underneath (skip if no_room_tone)
+    # Use computed timeline duration (accounts for overlaps/jitter) instead of input duration
+    output_duration = timeline_pos if timeline_pos > 0 else total_duration
     if not no_room_tone:
         if room_tone_input_idx is not None:
             # Loop room tone to match duration, mix at low volume
             filters.append(
                 f'[{room_tone_input_idx}:a]aformat=channel_layouts=mono,'
                 f'aloop=loop=-1:size=2e9,'
-                f'atrim=duration={total_duration:.6f},'
+                f'atrim=duration={output_duration:.6f},'
                 f'volume={room_tone_vol}[roomvol]'
             )
             filters.append(
@@ -251,7 +253,7 @@ def build_filter_complex(turns, actions, total_duration, sample_rate,
             # Synthetic pink noise room tone
             filters.append(
                 f'anoisesrc=color=pink:sample_rate={sample_rate}:'
-                f'amplitude=0.002:duration={total_duration:.6f}[roomnoise]'
+                f'amplitude=0.002:duration={output_duration:.6f}[roomnoise]'
             )
             filters.append(
                 f'[{out_label}][roomnoise]amix=inputs=2:weights=1|0.12:'
