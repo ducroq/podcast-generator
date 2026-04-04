@@ -15,21 +15,28 @@ from pathlib import Path
 
 
 def check_mos(audio_path):
-    """Predict Mean Opinion Score using UTMOS.
+    """Predict Mean Opinion Score using UTMOS via torch.hub.
 
-    Returns: {"mos": float} or None if speechmos not installed.
+    Returns: {"mos": float} or None if torch/torchaudio not installed.
     Score range: 1.0 (bad) to 5.0 (excellent). Flag below 3.5.
     """
     try:
-        import speechmos
+        import torch
+        import torchaudio
     except ImportError:
         return None
 
     try:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            score = speechmos.predict(str(audio_path), model="utmos")
-        return {"mos": round(float(score), 2)}
+            predictor = torch.hub.load(
+                "tarepan/SpeechMOS:v1.2.0", "utmos22_strong", trust_repo=True
+            )
+            wave, sr = torchaudio.load(str(audio_path))
+            if sr != 16000:
+                wave = torchaudio.functional.resample(wave, sr, 16000)
+            score = predictor(wave, sr=16000)
+        return {"mos": round(float(score.item()), 2)}
     except Exception as e:
         return {"mos": None, "mos_error": str(e)}
 
@@ -134,7 +141,8 @@ def get_available_checks():
     available = []
 
     try:
-        import speechmos
+        import torch
+        import torchaudio
         available.append("mos")
     except ImportError:
         pass
