@@ -3,6 +3,7 @@
 ## GPU Server Disk Space [RESOLVED]
 - Cleaned from 99% to 78% (35GB free) on 2026-04-02
 - Removed: pip cache (18GB), TADA models, unused Qwen 0.6B, whisper-large
+- Dia2 installed and removed same day (2026-04-04)
 
 ## Qwen3-ASR vs Whisper Comparison [RESOLVED]
 - Using faster-whisper base for all ref transcription — works well enough for Qwen ref_text matching
@@ -19,3 +20,8 @@
 - ElevenLabs version still exists: `output/mondriaan_ep0/de/episode_0_de_mastered.mp3`
 - Redo with Qwen3-TTS once self-refs are bootstrapped for German voices (emma_de, lucas_de, piet_de)
 - Generation script ready: `output/generate_mondriaan_de_qwen.py`
+
+## Dia2 Single-Pass TTS Evaluation [RESOLVED]
+- Evaluated 2026-04-04: MOS 3.13 (voice cloned) vs our 4.3-4.5 — not competitive
+- User confirmed: "really terrible" compared to Chatterbox/Qwen/ElevenLabs
+- Removed from gpu-server. Issue #4 closed.

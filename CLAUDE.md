@@ -28,18 +28,25 @@ Methodology and toolkit for producing AI-generated podcasts. Shared voice librar
 ## Architecture
 
 ```
-generator/elevenlabs/     → Primary TTS engine (multilingual, paid API)
-generator/chatterbox/     → English-only TTS (free, requires GPU)
-generator/tada/           → TADA TTS (English + German, free, requires GPU)
-generator/whisper/        → Whisper STT (transcription)
-generator/asr_*.py        → ASR comparison scripts (Whisper vs Qwen3-ASR)
+generator/elevenlabs/           → Primary TTS engine (multilingual, paid API)
+  src/voice_settings.py         → Shared EMOTIONAL_VARIANTS, get_voice_settings(), parse_line()
+  src/voice_config.py           → Voice ID mapping from .env
+  src/dialogue_parser.py        → Script parser
+generator/chatterbox/           → English-only TTS (free, requires GPU)
+generator/tada/                 → TADA TTS (archived — env removed)
+generator/whisper/              → Whisper STT (transcription)
+generator/audio_utils.py        → Shared ffmpeg helpers (detect_silences, get_duration, get_sample_rate)
+generator/quality_checks.py     → Optional quality checks (UTMOS MOS, speaker similarity, language ID)
+generator/validate_tts.py       → Validation pipeline: ASR + quality checks → validation.json
+generator/_transcribe_worker.py → Whisper subprocess worker (avoids code injection)
+generator/add_realism.py        → Post-processing: overlaps, jitter, room tone
+generator/trim_silences.py      → Silence trimming (loudnorm OFF by default)
+generator/asr_*.py              → ASR comparison scripts (Whisper vs Qwen3-ASR)
 generator/qwen_bootstrap_refs.py → Bootstrap matched refs for Qwen3-TTS
-generator/add_realism.py  → Post-processing: overlaps, jitter, room tone
-generator/validate_tts.py → Hallucination detection: ASR check against expected text
-generator/trim_silences.py → Post-processing (works with any engine)
-voices/                   → Master voice library (voices.json + designs/ + *.mp3)
-podcasts/                 → Per-podcast projects (scripts + generated audio)
-docs/                     → Methodology guides
+voices/                         → Master voice library (voices.json + designs/ + *.mp3)
+podcasts/                       → Per-podcast projects (scripts + generated audio)
+tests/                          → Test suite (80 tests, ~4s, no GPU needed)
+docs/                           → Methodology guides
 ```
 
 ## Key Commands
@@ -62,6 +69,28 @@ python generator/validate_tts.py . --manifest manifest.json --revalidate-flagged
 # Master (after mixing, always last)
 ffmpeg -i mix.mp3 -af "loudnorm=I=-16:TP=-1.5:LRA=11" -codec:a libmp3lame -b:a 192k final.mp3
 ```
+
+## Quality Checks (on gpu-server)
+
+Validation runs three tiers of checks (gracefully skips if dependencies not installed):
+
+| Check | Package | What it catches | Threshold |
+|-------|---------|----------------|-----------|
+| ASR text comparison | faster-whisper | Hallucinations, missing/extra words | Word overlap < 70% |
+| UTMOS MOS scoring | torch.hub (SpeechMOS) | Audio quality degradation, artifacts | < 3.5/5.0 |
+| Speaker similarity | resemblyzer | Voice drift from reference | < 0.75 cosine sim |
+
+Install on gpu-server: `pip install resemblyzer` (UTMOS loads via torch.hub automatically).
+
+Results appear in `validation.json` under the `quality` field per entry.
+
+## Testing
+
+```bash
+python -m pytest tests/ -v  # 80 tests, ~4 seconds, no GPU needed
+```
+
+Covers: audio_utils, voice_settings, hallucination detection, validation reports, add_realism filter graphs (end-to-end ffmpeg), trim_silences, full pipeline chain.
 
 ## Voice Library (100% Synthetic, 30 voices)
 

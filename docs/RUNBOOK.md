@@ -6,6 +6,7 @@
 - **One engine per venv** — TTS engines have conflicting dependencies (especially transformers versions). Never mix them.
 - **Cache voice prompts** — TADA encoder is too large to keep loaded alongside the model on 16GB. Encode once, save `.pt`, reuse.
 - **Always verify output** — check file duration after generation. Silent or runaway outputs happen silently.
+- **Verify ML package APIs in a REPL first** — docs are frequently wrong or outdated (qwen-tts vs transformers, speechmos vs SpeechMOS). Test the import and one call before building on it.
 
 ## gpu-server Access
 
@@ -118,14 +119,16 @@ torchaudio.save('output.wav', wav.cpu(), model.sr)
 
 ## Disk Space
 
-gpu-server disk is 158GB, currently near full (~99%). Main consumers:
+gpu-server disk is 158GB. As of 2026-04-04: 78% used (34GB free).
 
 | Path | Size | Notes |
 |------|------|-------|
-| `~/.cache/huggingface/hub/` | ~33GB | Model weights — clear unused models when switching engines |
-| `~/tada-env/` | ~6GB | TADA + PyTorch |
-| `~/podcast-generator/vox-env/` | ~7GB | Chatterbox + faster-whisper |
+| `~/.cache/huggingface/hub/` | ~20GB | Qwen3-TTS + Chatterbox model weights |
+| `~/.cache/torch/hub/` | ~400MB | UTMOS quality scoring model |
+| `~/podcast-generator/vox-env/` | ~7GB | Chatterbox + faster-whisper + resemblyzer |
+| `~/qwen-tts-env/` | ~6GB | Qwen3-TTS |
 
+TADA env was removed (2026-04-01). Dia2 was evaluated and removed (2026-04-04).
 Before installing a new engine, check `df -h /` and clean up as needed.
 
 ## Common Problems
