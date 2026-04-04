@@ -1,6 +1,6 @@
 # Podcast Generator
 
-<!-- agent-ready-projects: v1.5.0 -->
+<!-- agent-ready-projects: v1.6.0 -->
 
 Methodology and toolkit for producing AI-generated podcasts. Shared voice library (30+ synthetic voices), multiple TTS engines (ElevenLabs, Chatterbox, TADA), and guides for narrative design and production.
 
