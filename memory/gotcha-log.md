@@ -75,6 +75,21 @@
 2. **Detection**: Transcribe output with Whisper, compare against input text. Flag if output is >20% longer or contains unmatched words at start
 3. **Recovery**: Re-generate flagged samples (different seed gives different result)
 
+### add_realism.py was completely broken at runtime (2026-04-04)
+**Problem**: Every run of `add_realism.py` with overlaps, jitter, or room tone failed with ffmpeg filter graph errors. Nobody noticed because the script was never tested end-to-end.
+**Root cause**: Two bugs: (1) `anullsrc` is a source filter that can't be comma-chained with `atrim` — needs two separate filter lines. (2) `amix` weights used space separator instead of pipe (`|`). Both were present since the original code and survived our first review round (we introduced the `anullsrc` issue when replacing `aevalsrc`).
+**Fix**: Extracted `_silence_pad()` helper with proper two-filter separation. Fixed `amix` weights to use pipe. Added end-to-end ffmpeg test in `test_add_realism.py::TestEndToEndFilterGraph`.
+
+### speechmos package API different than documented (2026-04-04)
+**Problem**: `speechmos.predict()` doesn't exist. The `speechmos` pip package contains DNSMOS/PLCMOS, not UTMOS.
+**Root cause**: Confused the `speechmos` package with the `SpeechMOS` torch.hub model (tarepan/SpeechMOS). Different projects, similar names.
+**Fix**: Use `torch.hub.load("tarepan/SpeechMOS:v1.2.0", "utmos22_strong")` instead. Works correctly, verified on gpu-server.
+
+### Dia2 single-pass TTS quality not competitive (2026-04-04)
+**Problem**: Dia2 (nari-labs/Dia2-2B) produced MOS 3.13 with voice cloning, 2.28 without. Subjectively "really terrible" compared to Chatterbox (4.31) and Qwen (4.56).
+**Root cause**: Single-pass dialogue models optimize for turn-taking dynamics at the expense of per-voice audio quality. The 2B model is too small to match dedicated per-voice engines.
+**Fix**: No fix — this is a model limitation. Closed issue #4. Keep per-line pipeline with Chatterbox/Qwen/ElevenLabs. Revisit when models mature.
+
 ## Promoted
 
 <!-- Track gotchas that have been promoted to topic files or the memory index.
@@ -87,3 +102,5 @@
 
 | Entry | Promoted to | Date |
 |-------|------------|------|
+| ML package APIs are unreliable | CLAUDE.md hard constraint candidate | 2026-04-04 |
+| ffmpeg filter graphs must be e2e tested | `tests/test_add_realism.py::TestEndToEndFilterGraph` | 2026-04-04 |
