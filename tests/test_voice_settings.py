@@ -1,5 +1,8 @@
 """Tests for generator/elevenlabs/src/voice_settings.py — shared voice config."""
 
+import logging
+import pytest
+
 from src.voice_settings import (
     EMOTIONAL_VARIANTS, BASE_SIMILARITY, STABILITY_OFFSET,
     get_voice_settings, parse_line,
@@ -51,12 +54,14 @@ class TestGetVoiceSettings:
         assert abs(settings.stability - expected_stability) < 0.01
         assert settings.style == default["style"]
 
-    def test_unknown_speaker_falls_back(self):
-        settings = get_voice_settings("unknown_speaker", "excited")
+    def test_unknown_speaker_falls_back_with_warning(self, caplog):
+        with caplog.at_level(logging.WARNING):
+            settings = get_voice_settings("unknown_speaker", "excited")
         # Falls back to hardcoded {stability: 0.4, style: 0.4}
         expected_stability = max(0.15, 0.4 + STABILITY_OFFSET)
         assert abs(settings.stability - expected_stability) < 0.01
         assert settings.style == 0.4
+        assert any("Unknown speaker" in r.message for r in caplog.records)
 
     def test_stability_never_below_minimum(self):
         """Even with large negative offset, stability should not go below 0.15."""

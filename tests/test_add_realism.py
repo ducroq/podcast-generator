@@ -179,6 +179,69 @@ class TestBuildFilterComplex:
         assert "[null_pad0]" in combined  # intermediate label from _silence_pad
 
 
+    def test_filler_action_produces_input_and_mix(self):
+        random.seed(42)
+        turns = [
+            {"start": 0, "end": 4, "duration": 4, "gap_after": 0.5},
+            {"start": 4.5, "end": 5.5, "duration": 1, "gap_after": 0},
+        ]
+        actions = [
+            {"turn_idx": 0, "action": "normal", "overlap_ms": 0, "jitter_ms": 0, "filler_file": "/tmp/uh.wav"},
+            {"turn_idx": 1, "action": "normal", "overlap_ms": 0, "jitter_ms": 0, "filler_file": None},
+        ]
+        filters, out_label, extra_inputs = build_filter_complex(
+            turns, actions, 5.5, 44100, no_room_tone=True,
+        )
+        combined = ";".join(filters)
+        # Filler should be added as extra input
+        assert "-i" in extra_inputs
+        assert "/tmp/uh.wav" in extra_inputs
+        # Filter graph should have adelay and volume for the filler
+        assert "adelay=" in combined
+        assert "volume=0.3" in combined
+        # Should mix filler into output
+        assert "amix=inputs=2:duration=first" in combined
+        # Output label should be the filler mix, not 'joined'
+        assert out_label.startswith("fmix")
+
+    def test_filler_with_room_tone_correct_input_indices(self):
+        random.seed(42)
+        turns = [
+            {"start": 0, "end": 4, "duration": 4, "gap_after": 0.5},
+            {"start": 4.5, "end": 5.5, "duration": 1, "gap_after": 0},
+        ]
+        actions = [
+            {"turn_idx": 0, "action": "normal", "overlap_ms": 0, "jitter_ms": 0, "filler_file": "/tmp/uh.wav"},
+            {"turn_idx": 1, "action": "normal", "overlap_ms": 0, "jitter_ms": 0, "filler_file": None},
+        ]
+        filters, out_label, extra_inputs = build_filter_complex(
+            turns, actions, 5.5, 44100,
+            room_tone_path="/tmp/tone.wav", no_room_tone=False,
+        )
+        combined = ";".join(filters)
+        # Room tone is input [1], filler is input [2]
+        assert "[1:a]" in combined  # room tone
+        assert "[2:a]" in combined  # filler
+        # Both room tone and filler file should be in extra_inputs
+        assert extra_inputs.count("-i") == 2
+        assert out_label == "roomed"
+
+    def test_no_filler_when_no_filler_file(self):
+        turns = [
+            {"start": 0, "end": 4, "duration": 4, "gap_after": 0},
+        ]
+        actions = [
+            {"turn_idx": 0, "action": "normal", "overlap_ms": 0, "jitter_ms": 0, "filler_file": None},
+        ]
+        filters, out_label, extra_inputs = build_filter_complex(
+            turns, actions, 4.0, 44100, no_room_tone=True,
+        )
+        combined = ";".join(filters)
+        assert "adelay" not in combined
+        assert "filler" not in combined
+        assert extra_inputs == []
+
+
 class TestParseRange:
     def test_basic_range(self):
         assert parse_range("300-800") == (300, 800)

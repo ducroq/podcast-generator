@@ -9,7 +9,7 @@ Usage:
     python generator/add_realism.py input.mp3 [output.mp3] [options]
 
 Options:
-    --overlap-chance 0.15    Probability of overlapping a speaker turn (0-1)
+    --overlap-chance 0.25    Probability of overlapping a speaker turn (0-1)
     --overlap-ms 300-800     Overlap duration range in ms
     --jitter-ms 50-150       Random pause jitter range in ms
     --fillers-dir path       Directory with filler audio files (uh.wav, mmhm.wav, etc.)
@@ -125,20 +125,24 @@ def _silence_pad(sample_rate, duration, label):
 
 def build_filter_complex(turns, actions, total_duration, sample_rate,
                          room_tone_path=None, room_tone_vol=0.08,
-                         no_room_tone=False, filler_inputs=None):
+                         no_room_tone=False):
     """Build ffmpeg filter_complex string for all realism effects.
 
     Strategy: extract each turn as a segment, adjust timing between segments,
     then concatenate. Overlaps are done by mixing the tail of one segment with
-    the head of the next.
+    the head of the next. Fillers are mixed in after concatenation at their
+    planned positions within the timeline.
     """
     filters = []
     segments = []
     extra_inputs = []
-    # Track filler input indices (they come after main audio and optional room tone)
-    filler_input_offset = 1  # [0] = main audio
+    # Track next ffmpeg input index: [0]=main audio, then room tone if present, then fillers
+    next_input_idx = 1
+    room_tone_input_idx = None
     if room_tone_path and not no_room_tone:
-        filler_input_offset = 2  # [1] = room tone file
+        room_tone_input_idx = next_input_idx
+        extra_inputs.extend(['-i', str(room_tone_path)])
+        next_input_idx += 1
 
     for i, (turn, action) in enumerate(zip(turns, actions)):
         seg_label = f's{i}'
@@ -186,12 +190,50 @@ def build_filter_complex(turns, actions, total_duration, sample_rate,
 
     out_label = 'joined'
 
+    # Fillers: mix each filler at its planned absolute position
+    # Compute absolute timeline positions by replaying overlap/jitter decisions
+    timeline_pos = 0.0
+    turn_abs_starts = []
+    for i, (turn, action) in enumerate(zip(turns, actions)):
+        turn_abs_starts.append(timeline_pos)
+        timeline_pos += turn['duration']
+        if i < len(turns) - 1:
+            gap = turn['gap_after']
+            if action['action'] == 'overlap':
+                overlap_s = action['overlap_ms'] / 1000.0
+                timeline_pos += max(0.05, gap - overlap_s)
+            elif action['jitter_ms'] != 0:
+                timeline_pos += max(0.05, gap + action['jitter_ms'] / 1000.0)
+            else:
+                if gap > 0.01:
+                    timeline_pos += gap
+
+    for i, (turn, action) in enumerate(zip(turns, actions)):
+        if action['filler_file']:
+            filler_idx = next_input_idx
+            next_input_idx += 1
+            extra_inputs.extend(['-i', action['filler_file']])
+            # Place filler at a random point within the turn (30%-70% through)
+            turn_start = turn_abs_starts[i]
+            offset_in_turn = turn['duration'] * random.uniform(0.3, 0.7)
+            delay_ms = int((turn_start + offset_in_turn) * 1000)
+            filler_label = f'filler{i}'
+            mix_label = f'fmix{i}'
+            filters.append(
+                f'[{filler_idx}:a]volume=0.3,adelay={delay_ms}|{delay_ms}[{filler_label}]'
+            )
+            filters.append(
+                f'[{out_label}][{filler_label}]amix=inputs=2:duration=first[{mix_label}]'
+            )
+            out_label = mix_label
+
     # Room tone: mix underneath (skip if no_room_tone)
     if not no_room_tone:
-        if room_tone_path:
+        if room_tone_input_idx is not None:
             # Loop room tone to match duration, mix at low volume
             filters.append(
-                f'[room]aloop=loop=-1:size=2e9,atrim=duration={total_duration:.6f},'
+                f'[{room_tone_input_idx}:a]aloop=loop=-1:size=2e9,'
+                f'atrim=duration={total_duration:.6f},'
                 f'volume={room_tone_vol}[roomvol]'
             )
             filters.append(
@@ -199,7 +241,6 @@ def build_filter_complex(turns, actions, total_duration, sample_rate,
                 f'duration=first[roomed]'
             )
             out_label = 'roomed'
-            extra_inputs = ['-i', str(room_tone_path)]
         else:
             # Synthetic pink noise room tone
             filters.append(
@@ -215,7 +256,7 @@ def build_filter_complex(turns, actions, total_duration, sample_rate,
     return filters, out_label, extra_inputs
 
 
-def add_realism(input_path, output_path, overlap_chance=0.15,
+def add_realism(input_path, output_path, overlap_chance=0.25,
                 overlap_range_ms=(300, 800), jitter_range_ms=(50, 150),
                 filler_chance=0.10, fillers_dir=None,
                 room_tone_path=None, room_tone_vol=0.08,
@@ -341,8 +382,8 @@ if __name__ == '__main__':
     )
     parser.add_argument('input', help='Input audio file (mp3/wav)')
     parser.add_argument('output', nargs='?', help='Output file (default: input_real.mp3)')
-    parser.add_argument('--overlap-chance', type=float, default=0.15,
-                        help='Probability of overlapping a turn (default: 0.15)')
+    parser.add_argument('--overlap-chance', type=float, default=0.25,
+                        help='Probability of overlapping a turn (default: 0.25)')
     parser.add_argument('--overlap-ms', type=str, default='300-800',
                         help='Overlap duration range in ms (default: 300-800)')
     parser.add_argument('--jitter-ms', type=str, default='50-150',
