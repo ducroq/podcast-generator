@@ -106,8 +106,13 @@ WORD_DURATION = {
 }
 
 
-def validate_single(audio_path, expected_text, language="en"):
-    """Validate a single audio file. Returns dict with results."""
+def validate_single(audio_path, expected_text, language="en", ref_path=None):
+    """Validate a single audio file. Returns dict with results.
+
+    Runs core checks (ASR + duration) always, plus optional quality checks
+    (UTMOS MOS, speaker similarity, language ID) when their dependencies
+    are installed.
+    """
     audio_path = Path(audio_path)
 
     if not audio_path.exists():
@@ -137,7 +142,7 @@ def validate_single(audio_path, expected_text, language="en"):
         issues.append(f"SILENT: output is only {duration:.1f}s")
         is_ok = False
 
-    return {
+    result = {
         "file": str(audio_path),
         "status": "OK" if is_ok else "FLAGGED",
         "duration": round(duration, 1),
@@ -145,6 +150,26 @@ def validate_single(audio_path, expected_text, language="en"):
         "transcription": transcription,
         "issues": issues,
     }
+
+    # Optional quality checks (gracefully skip if dependencies not installed)
+    from quality_checks import run_quality_checks
+    quality = run_quality_checks(audio_path, ref_path=ref_path,
+                                 expected_language=language)
+    if quality:
+        result["quality"] = quality
+        # Flag based on quality thresholds
+        if quality.get("mos") is not None and quality["mos"] < 3.5:
+            issues.append(f"LOW_MOS: {quality['mos']}/5.0 (threshold: 3.5)")
+            result["status"] = "FLAGGED"
+        if quality.get("speaker_similarity") is not None and quality["speaker_similarity"] < 0.75:
+            issues.append(f"VOICE_DRIFT: speaker similarity {quality['speaker_similarity']:.2f} (threshold: 0.75)")
+            result["status"] = "FLAGGED"
+        if quality.get("language_match") is False:
+            issues.append(f"WRONG_LANGUAGE: detected '{quality.get('detected_language')}' "
+                         f"(confidence: {quality.get('language_confidence', '?')})")
+            result["status"] = "FLAGGED"
+
+    return result
 
 
 def validate_manifest(manifest_path, skip_passed=False):
@@ -207,7 +232,8 @@ def validate_manifest(manifest_path, skip_passed=False):
             continue
 
         result = validate_single(str(resolved), entry["text"],
-                                 language=entry.get("language", "en"))
+                                 language=entry.get("language", "en"),
+                                 ref_path=entry.get("ref_audio"))
         results.append(result)
         if result["status"] == "FLAGGED":
             flagged += 1
@@ -282,6 +308,19 @@ def print_result(result):
         print(f"       Expected:    {expected[:80]}{'...' if len(expected) > 80 else ''}")
         print(f"       Transcribed: {transcribed[:80]}{'...' if len(transcribed) > 80 else ''}")
 
+    if result.get("quality"):
+        q = result["quality"]
+        parts = []
+        if q.get("mos") is not None:
+            parts.append(f"MOS={q['mos']}")
+        if q.get("speaker_similarity") is not None:
+            parts.append(f"spk_sim={q['speaker_similarity']:.2f}")
+        if q.get("language_match") is not None:
+            lang_icon = "ok" if q["language_match"] else "MISMATCH"
+            parts.append(f"lang={q.get('detected_language', '?')}({lang_icon})")
+        if parts:
+            print(f"       Quality:     {', '.join(parts)}")
+
     for issue in result.get("issues", []):
         print(f"       -> {issue}")
 
@@ -305,10 +344,19 @@ if __name__ == "__main__":
     parser.add_argument("--manifest", help="JSON manifest with file/text pairs")
     parser.add_argument("--language", default="en", help="Language code (default: en)")
     parser.add_argument("--engine", help="TTS engine used (stored in report)")
+    parser.add_argument("--ref-audio", help="Voice reference audio for speaker similarity check")
     parser.add_argument("--revalidate-flagged", action="store_true",
                         help="Only re-validate previously FLAGGED/ERROR entries")
 
     args = parser.parse_args()
+
+    # Report available quality checks
+    from quality_checks import get_available_checks
+    available = get_available_checks()
+    if available:
+        print(f"Quality checks available: {', '.join(available)}")
+    else:
+        print("Quality checks: none (install speechmos, resemblyzer, speechbrain for enhanced validation)")
 
     if args.manifest:
         results, flagged = validate_manifest(
@@ -329,7 +377,8 @@ if __name__ == "__main__":
         print(f"\nReport saved: {report_path}")
 
     elif args.expected_text:
-        result = validate_single(args.input, args.expected_text, args.language)
+        result = validate_single(args.input, args.expected_text, args.language,
+                                 ref_path=args.ref_audio)
         results = [result]
         report = build_report(results, language=args.language, engine=args.engine)
 
