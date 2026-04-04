@@ -7,46 +7,12 @@ Usage:
     python trim_silences.py input.mp3 [output.mp3] [--max-pause 0.35] [--no-loudnorm]
 """
 
+import argparse
 import subprocess
-import re
 import sys
 from pathlib import Path
 
-
-def detect_silences(input_path, noise_db=-35, min_duration=0.3):
-    """Detect silence regions using ffmpeg silencedetect."""
-    cmd = [
-        'ffmpeg', '-i', str(input_path),
-        '-af', f'silencedetect=noise={noise_db}dB:d={min_duration}',
-        '-f', 'null', '-'
-    ]
-    result = subprocess.run(cmd, capture_output=True, text=True)
-
-    silences = []
-    starts = []
-    for line in result.stderr.split('\n'):
-        start_match = re.search(r'silence_start:\s*([\d.]+)', line)
-        end_match = re.search(r'silence_end:\s*([\d.]+)\s*\|\s*silence_duration:\s*([\d.]+)', line)
-        if start_match:
-            starts.append(float(start_match.group(1)))
-        if end_match and starts:
-            silences.append({
-                'start': starts.pop(0),
-                'end': float(end_match.group(1)),
-                'duration': float(end_match.group(2))
-            })
-    return silences
-
-
-def get_duration(input_path):
-    """Get audio duration in seconds."""
-    cmd = [
-        'ffprobe', '-v', 'error',
-        '-show_entries', 'format=duration',
-        '-of', 'default=noprint_wrappers=1:nokey=1',
-        str(input_path)
-    ]
-    return float(subprocess.run(cmd, capture_output=True, text=True).stdout.strip())
+from audio_utils import detect_silences, get_duration
 
 
 def trim_silences(input_path, output_path, max_pause=0.35, noise_db=-35,
@@ -136,30 +102,25 @@ def trim_silences(input_path, output_path, max_pause=0.35, noise_db=-35,
 
 
 if __name__ == '__main__':
-    if len(sys.argv) < 2:
-        print("Usage: python trim_silences.py input.mp3 [output.mp3] [--max-pause 0.35] [--no-loudnorm]")
+    parser = argparse.ArgumentParser(
+        description="Shorten excessive pauses in TTS audio output"
+    )
+    parser.add_argument('input', help='Input audio file (mp3/wav)')
+    parser.add_argument('output', nargs='?', help='Output file (default: input_processed.mp3)')
+    parser.add_argument('--max-pause', type=float, default=0.35,
+                        help='Maximum pause duration in seconds (default: 0.35)')
+    parser.add_argument('--no-loudnorm', action='store_true',
+                        help='Skip loudness normalization')
+
+    args = parser.parse_args()
+
+    input_file = Path(args.input)
+    if not input_file.exists():
+        print(f"Error: {input_file} not found")
         sys.exit(1)
 
-    input_file = Path(sys.argv[1])
-    max_pause = 0.35
-    loudnorm = True
-    output_file = None
+    output_file = Path(args.output) if args.output else \
+        input_file.with_stem(input_file.stem + '_processed')
 
-    i = 2
-    while i < len(sys.argv):
-        if sys.argv[i] == '--max-pause' and i + 1 < len(sys.argv):
-            max_pause = float(sys.argv[i + 1])
-            i += 2
-        elif sys.argv[i] == '--no-loudnorm':
-            loudnorm = False
-            i += 1
-        elif not output_file:
-            output_file = Path(sys.argv[i])
-            i += 1
-        else:
-            i += 1
-
-    if not output_file:
-        output_file = input_file.with_stem(input_file.stem + '_processed')
-
-    trim_silences(input_file, output_file, max_pause=max_pause, loudnorm=loudnorm)
+    trim_silences(input_file, output_file, max_pause=args.max_pause,
+                  loudnorm=not args.no_loudnorm)

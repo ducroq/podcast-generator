@@ -14,9 +14,12 @@ import sys
 from pathlib import Path
 from dotenv import load_dotenv
 from elevenlabs import ElevenLabs
-from elevenlabs.types import DialogueInput, VoiceSettings
+from elevenlabs.types import DialogueInput
 
 SCRIPT_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(SCRIPT_DIR))
+from src.voice_settings import get_voice_settings, parse_line, BASE_SIMILARITY, SPEED_ADJUSTMENT
+
 load_dotenv(SCRIPT_DIR / '.env')
 client = ElevenLabs(api_key=os.getenv('ELEVENLABS_API_KEY'))
 
@@ -30,105 +33,6 @@ def load_voice_ids(lang_suffix=""):
     }
 
 VOICE_IDS = load_voice_ids()  # default, overridden in main() if --lang used
-
-# Finalized settings (see docs/AUDIO_GENERATION_DECISION.md)
-BASE_SIMILARITY = 0.95  # WINNING setting for faithful voice reproduction
-SPEED_ADJUSTMENT = -0.10  # For natural pacing
-
-# Emotional variants for all speakers
-EMOTIONAL_VARIANTS = {
-    "emma": {
-        "default": {"stability": 0.4, "style": 0.4},
-        "enthusiastic": {"stability": 0.35, "style": 0.5},
-        "excited": {"stability": 0.3, "style": 0.55},
-        "curious": {"stability": 0.38, "style": 0.45},
-        "thoughtful": {"stability": 0.5, "style": 0.3},
-        "calm": {"stability": 0.55, "style": 0.25},
-        "warm": {"stability": 0.45, "style": 0.35},
-        "surprised": {"stability": 0.3, "style": 0.5},
-        "amused": {"stability": 0.35, "style": 0.45},
-        "listening": {"stability": 0.45, "style": 0.2},
-        "understanding": {"stability": 0.42, "style": 0.38},
-        "realizing": {"stability": 0.38, "style": 0.45},
-        "fascinated": {"stability": 0.33, "style": 0.48},
-        "agreeing": {"stability": 0.4, "style": 0.4},
-        "interested": {"stability": 0.38, "style": 0.42},
-        "hesitant": {"stability": 0.48, "style": 0.25},
-        "laughing": {"stability": 0.3, "style": 0.55},
-        "moved": {"stability": 0.5, "style": 0.35},
-        "practical": {"stability": 0.4, "style": 0.35},
-        "confused": {"stability": 0.35, "style": 0.4},
-        "amazed": {"stability": 0.32, "style": 0.5},
-        "processing": {"stability": 0.45, "style": 0.35},
-        "impressed": {"stability": 0.38, "style": 0.45},
-        "philosophical": {"stability": 0.5, "style": 0.3},
-        "observant": {"stability": 0.42, "style": 0.38},
-        "descriptive": {"stability": 0.4, "style": 0.4},
-        "questioning": {"stability": 0.38, "style": 0.42},
-        "insightful": {"stability": 0.38, "style": 0.45},
-        "connecting": {"stability": 0.4, "style": 0.42},
-        "intrigued": {"stability": 0.35, "style": 0.48},
-        "anticipating": {"stability": 0.38, "style": 0.45},
-    },
-    "lucas": {
-        "default": {"stability": 0.35, "style": 0.4},
-        "warm": {"stability": 0.4, "style": 0.35},
-        "enthusiastic": {"stability": 0.3, "style": 0.5},
-        "thoughtful": {"stability": 0.45, "style": 0.3},
-        "calm": {"stability": 0.5, "style": 0.25},
-        "confident": {"stability": 0.38, "style": 0.45},
-        "amused": {"stability": 0.32, "style": 0.48},
-        "explanatory": {"stability": 0.38, "style": 0.42},
-        "confirming": {"stability": 0.37, "style": 0.4},
-        "mysterious": {"stability": 0.35, "style": 0.5},
-        "revealing": {"stability": 0.33, "style": 0.48},
-        "excited": {"stability": 0.3, "style": 0.52},
-        "proud": {"stability": 0.38, "style": 0.42},
-        "meaningful": {"stability": 0.42, "style": 0.38},
-        "passionate": {"stability": 0.32, "style": 0.52},
-        "emphatic": {"stability": 0.35, "style": 0.48},
-        "agreeing": {"stability": 0.37, "style": 0.4},
-        "encouraging": {"stability": 0.38, "style": 0.42},
-        "friendly": {"stability": 0.4, "style": 0.38},
-        "curious": {"stability": 0.35, "style": 0.45},
-        "surprised": {"stability": 0.28, "style": 0.52},
-        "listening": {"stability": 0.45, "style": 0.25},
-        "informative": {"stability": 0.4, "style": 0.38},
-        "dramatic": {"stability": 0.32, "style": 0.5},
-        "descriptive": {"stability": 0.38, "style": 0.4},
-        "admiring": {"stability": 0.4, "style": 0.4},
-        "genuinely interested": {"stability": 0.38, "style": 0.42},
-    },
-    "piet": {
-        "default": {"stability": 0.5, "style": 0.3},
-        "thoughtful": {"stability": 0.6, "style": 0.2},
-        "passionate": {"stability": 0.4, "style": 0.5},
-        "determined": {"stability": 0.45, "style": 0.4},
-    }
-}
-
-def parse_line(line):
-    """Parse a dialogue line into speaker, emotion, and text"""
-    match = re.match(r'(\w+):\s*\[(\w+(?:\s+\w+)*)\]\s*(.*)', line.strip())
-    if match:
-        speaker = match.group(1).lower()
-        emotion = match.group(2).lower()
-        text = match.group(3).strip()
-        return speaker, emotion, text
-    return None, None, None
-
-def get_voice_settings(speaker, emotion):
-    """Get voice settings for speaker and emotion"""
-    variants = EMOTIONAL_VARIANTS.get(speaker, {})
-    variant = variants.get(emotion, variants.get("default", {"stability": 0.4, "style": 0.4}))
-
-    adjusted_stability = max(0.15, variant["stability"] + SPEED_ADJUSTMENT)
-
-    return VoiceSettings(
-        stability=adjusted_stability,
-        similarity_boost=BASE_SIMILARITY,
-        style=variant["style"]
-    )
 
 def find_sections(content):
     """Find all section names in the script"""
@@ -189,12 +93,16 @@ def generate_section(script_path, section_name, output_path):
     print(f"Generating audio...")
 
     # Generate audio using text_to_dialogue (best quality)
-    audio = client.text_to_dialogue.convert(inputs=dialogue_inputs)
+    try:
+        audio = client.text_to_dialogue.convert(inputs=dialogue_inputs)
 
-    # Save output
-    with open(output_path, 'wb') as f:
-        for chunk in audio:
-            f.write(chunk)
+        # Save output
+        with open(output_path, 'wb') as f:
+            for chunk in audio:
+                f.write(chunk)
+    except Exception as e:
+        print(f"ERROR: API call failed: {e}")
+        return False
 
     file_size = output_path.stat().st_size
     print(f"Saved: {output_path}")
@@ -280,7 +188,7 @@ Examples:
     failed = []
 
     for idx, section_name in enumerate(sections, 1):
-        section_slug = section_name.replace('"', '').replace(':', '').replace(' ', '_').lower()
+        section_slug = re.sub(r'[^a-z0-9_\-]', '', section_name.replace(' ', '_').lower())
         output_file = output_dir / f"{episode_name}_{idx}_{section_slug}.mp3"
 
         success = generate_section(script_path, section_name, output_file)

@@ -31,16 +31,17 @@ class VoiceConfig:
 
     def get_voice_id(self, speaker: str) -> str:
         """Get the voice ID for a given speaker."""
-        if speaker not in self.voice_map:
+        key = speaker.upper()
+        if key not in self.voice_map:
             raise ValueError(
                 f"No voice mapping found for speaker '{speaker}'. "
                 f"Available speakers: {list(self.voice_map.keys())}"
             )
-        return self.voice_map[speaker]
+        return self.voice_map[key]
 
     def has_speaker(self, speaker: str) -> bool:
         """Check if a voice mapping exists for a speaker."""
-        return speaker in self.voice_map
+        return speaker.upper() in self.voice_map
 
     def get_all_speakers(self) -> list:
         """Get all configured speakers."""

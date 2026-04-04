@@ -17,16 +17,16 @@ import requests
 from pathlib import Path
 from dotenv import load_dotenv
 from elevenlabs import ElevenLabs
-from elevenlabs.types import DialogueInput, VoiceSettings
+from elevenlabs.types import DialogueInput
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR))
 from src.dialogue_parser import DialogueParser
 from src.voice_config import VoiceConfig
-
-# Voice settings for dialogue API (Emma)
-BASE_SIMILARITY = 0.95
-SPEED_ADJUSTMENT = -0.10
+from src.voice_settings import (
+    EMOTIONAL_VARIANTS, BASE_SIMILARITY, SPEED_ADJUSTMENT,
+    get_voice_settings,
+)
 
 # Voice settings for REST API (Lucas)
 REST_SIMILARITY_BOOST = 0.8
@@ -38,90 +38,6 @@ SPEAKER_METHOD_MAP = {
     "lucas": "rest",     # REST API with eleven_multilingual_v2
     "piet": "rest",      # REST API with eleven_multilingual_v2
 }
-
-EMOTIONAL_VARIANTS = {
-    "emma": {
-        "default": {"stability": 0.4, "style": 0.4},
-        "enthusiastic": {"stability": 0.35, "style": 0.5},
-        "excited": {"stability": 0.3, "style": 0.55},
-        "curious": {"stability": 0.38, "style": 0.45},
-        "thoughtful": {"stability": 0.5, "style": 0.3},
-        "calm": {"stability": 0.55, "style": 0.25},
-        "warm": {"stability": 0.45, "style": 0.35},
-        "surprised": {"stability": 0.3, "style": 0.5},
-        "amused": {"stability": 0.35, "style": 0.45},
-        "listening": {"stability": 0.45, "style": 0.2},
-        "understanding": {"stability": 0.42, "style": 0.38},
-        "realizing": {"stability": 0.38, "style": 0.45},
-        "fascinated": {"stability": 0.33, "style": 0.48},
-        "agreeing": {"stability": 0.4, "style": 0.4},
-        "interested": {"stability": 0.38, "style": 0.42},
-        "hesitant": {"stability": 0.48, "style": 0.25},
-        "laughing": {"stability": 0.3, "style": 0.55},
-        "moved": {"stability": 0.5, "style": 0.35},
-        "practical": {"stability": 0.4, "style": 0.35},
-        "confused": {"stability": 0.35, "style": 0.4},
-        "amazed": {"stability": 0.32, "style": 0.5},
-        "processing": {"stability": 0.45, "style": 0.35},
-        "impressed": {"stability": 0.38, "style": 0.45},
-        "philosophical": {"stability": 0.5, "style": 0.3},
-        "observant": {"stability": 0.42, "style": 0.38},
-        "descriptive": {"stability": 0.4, "style": 0.4},
-        "questioning": {"stability": 0.38, "style": 0.42},
-        "insightful": {"stability": 0.38, "style": 0.45},
-        "connecting": {"stability": 0.4, "style": 0.42},
-        "intrigued": {"stability": 0.35, "style": 0.48},
-        "anticipating": {"stability": 0.38, "style": 0.45},
-    },
-    "lucas": {
-        "default": {"stability": 0.35, "style": 0.4},
-        "warm": {"stability": 0.4, "style": 0.35},
-        "enthusiastic": {"stability": 0.3, "style": 0.5},
-        "thoughtful": {"stability": 0.45, "style": 0.3},
-        "calm": {"stability": 0.5, "style": 0.25},
-        "confident": {"stability": 0.38, "style": 0.45},
-        "amused": {"stability": 0.32, "style": 0.48},
-        "explanatory": {"stability": 0.38, "style": 0.42},
-        "confirming": {"stability": 0.37, "style": 0.4},
-        "mysterious": {"stability": 0.35, "style": 0.5},
-        "revealing": {"stability": 0.33, "style": 0.48},
-        "excited": {"stability": 0.3, "style": 0.52},
-        "proud": {"stability": 0.38, "style": 0.42},
-        "meaningful": {"stability": 0.42, "style": 0.38},
-        "passionate": {"stability": 0.32, "style": 0.52},
-        "emphatic": {"stability": 0.35, "style": 0.48},
-        "agreeing": {"stability": 0.37, "style": 0.4},
-        "encouraging": {"stability": 0.38, "style": 0.42},
-        "friendly": {"stability": 0.4, "style": 0.38},
-        "curious": {"stability": 0.35, "style": 0.45},
-        "surprised": {"stability": 0.28, "style": 0.52},
-        "listening": {"stability": 0.45, "style": 0.25},
-        "informative": {"stability": 0.4, "style": 0.38},
-        "dramatic": {"stability": 0.32, "style": 0.5},
-        "descriptive": {"stability": 0.38, "style": 0.4},
-        "admiring": {"stability": 0.4, "style": 0.4},
-        "genuinely interested": {"stability": 0.38, "style": 0.42},
-    },
-    "piet": {
-        "default": {"stability": 0.5, "style": 0.3},
-        "thoughtful": {"stability": 0.6, "style": 0.2},
-        "passionate": {"stability": 0.4, "style": 0.5},
-        "determined": {"stability": 0.45, "style": 0.4},
-    }
-}
-
-def get_voice_settings(speaker, emotion):
-    """Get voice settings for speaker and emotion"""
-    variants = EMOTIONAL_VARIANTS.get(speaker, {})
-    variant = variants.get(emotion, variants.get("default", {"stability": 0.4, "style": 0.4}))
-
-    adjusted_stability = max(0.15, variant["stability"] + SPEED_ADJUSTMENT)
-
-    return VoiceSettings(
-        stability=adjusted_stability,
-        similarity_boost=BASE_SIMILARITY,
-        style=variant["style"]
-    )
 
 def parse_emotion_from_line(text):
     """Extract emotion tag from dialogue text like [realizing] or [thoughtful]"""
@@ -156,10 +72,10 @@ def generate_with_rest_api(text, voice_id, output_path, voice_settings, api_key)
         "enable_logging": False
     }
 
-    response = requests.post(url, json=data, headers=headers)
+    response = requests.post(url, json=data, headers=headers, timeout=(10, 300))
 
     if response.status_code != 200:
-        print(f"[ERROR] API Error: {response.status_code} - {response.text}")
+        print(f"[ERROR] API Error: {response.status_code} - {response.text[:200]}")
         return False
 
     with open(output_path, "wb") as f:

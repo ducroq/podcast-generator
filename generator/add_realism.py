@@ -22,60 +22,12 @@ Options:
 """
 
 import argparse
-import json
 import random
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
-
-def detect_silences(input_path, noise_db=-35, min_duration=0.25):
-    """Detect silence regions using ffmpeg silencedetect."""
-    cmd = [
-        'ffmpeg', '-i', str(input_path),
-        '-af', f'silencedetect=noise={noise_db}dB:d={min_duration}',
-        '-f', 'null', '-'
-    ]
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    import re
-    silences = []
-    starts = []
-    for line in result.stderr.split('\n'):
-        start_match = re.search(r'silence_start:\s*([\d.]+)', line)
-        end_match = re.search(r'silence_end:\s*([\d.]+)\s*\|\s*silence_duration:\s*([\d.]+)', line)
-        if start_match:
-            starts.append(float(start_match.group(1)))
-        if end_match and starts:
-            silences.append({
-                'start': starts.pop(0),
-                'end': float(end_match.group(1)),
-                'duration': float(end_match.group(2))
-            })
-    return silences
-
-
-def get_duration(input_path):
-    """Get audio duration in seconds."""
-    cmd = [
-        'ffprobe', '-v', 'error',
-        '-show_entries', 'format=duration',
-        '-of', 'default=noprint_wrappers=1:nokey=1',
-        str(input_path)
-    ]
-    return float(subprocess.run(cmd, capture_output=True, text=True).stdout.strip())
-
-
-def get_sample_rate(input_path):
-    """Get audio sample rate."""
-    cmd = [
-        'ffprobe', '-v', 'error',
-        '-select_streams', 'a:0',
-        '-show_entries', 'stream=sample_rate',
-        '-of', 'default=noprint_wrappers=1:nokey=1',
-        str(input_path)
-    ]
-    return int(subprocess.run(cmd, capture_output=True, text=True).stdout.strip())
+from audio_utils import detect_silences, get_duration, get_sample_rate
 
 
 def split_into_turns(silences, total_duration):
@@ -159,7 +111,8 @@ def plan_realism(turns, overlap_chance, overlap_range_ms, jitter_range_ms,
 
 
 def build_filter_complex(turns, actions, total_duration, sample_rate,
-                         room_tone_path=None, room_tone_vol=0.08):
+                         room_tone_path=None, room_tone_vol=0.08,
+                         no_room_tone=False):
     """Build ffmpeg filter_complex string for all realism effects.
 
     Strategy: extract each turn as a segment, adjust timing between segments,
@@ -168,7 +121,6 @@ def build_filter_complex(turns, actions, total_duration, sample_rate,
     """
     filters = []
     segments = []
-    input_idx = 0  # [0:a] is always the main audio
     extra_inputs = []
 
     for i, (turn, action) in enumerate(zip(turns, actions)):
@@ -187,10 +139,9 @@ def build_filter_complex(turns, actions, total_duration, sample_rate,
                 # Overlap: shorten the gap and crossfade
                 overlap_s = action['overlap_ms'] / 1000.0
                 remaining_gap = max(0.05, gap - overlap_s)
-                # Create shortened silence
                 pad_label = f'pad{i}'
                 filters.append(
-                    f'aevalsrc=0:d={remaining_gap:.6f}:s={sample_rate}[{pad_label}]'
+                    f'anullsrc=r={sample_rate}:cl=mono,atrim=duration={remaining_gap:.6f}[{pad_label}]'
                 )
                 segments.append(f'[{seg_label}]')
                 segments.append(f'[{pad_label}]')
@@ -199,7 +150,7 @@ def build_filter_complex(turns, actions, total_duration, sample_rate,
                 new_gap = max(0.05, gap + action['jitter_ms'] / 1000.0)
                 pad_label = f'pad{i}'
                 filters.append(
-                    f'aevalsrc=0:d={new_gap:.6f}:s={sample_rate}[{pad_label}]'
+                    f'anullsrc=r={sample_rate}:cl=mono,atrim=duration={new_gap:.6f}[{pad_label}]'
                 )
                 segments.append(f'[{seg_label}]')
                 segments.append(f'[{pad_label}]')
@@ -208,7 +159,7 @@ def build_filter_complex(turns, actions, total_duration, sample_rate,
                 if gap > 0.01:
                     pad_label = f'pad{i}'
                     filters.append(
-                        f'aevalsrc=0:d={gap:.6f}:s={sample_rate}[{pad_label}]'
+                        f'anullsrc=r={sample_rate}:cl=mono,atrim=duration={gap:.6f}[{pad_label}]'
                     )
                     segments.append(f'[{seg_label}]')
                     segments.append(f'[{pad_label}]')
@@ -224,30 +175,31 @@ def build_filter_complex(turns, actions, total_duration, sample_rate,
 
     out_label = 'joined'
 
-    # Room tone: mix underneath
-    if room_tone_path:
-        # Loop room tone to match duration, mix at low volume
-        filters.append(
-            f'[room]aloop=loop=-1:size=2e9,atrim=duration={total_duration:.6f},'
-            f'volume={room_tone_vol}[roomvol]'
-        )
-        filters.append(
-            f'[{out_label}][roomvol]amix=inputs=2:weights=1 {room_tone_vol}:'
-            f'duration=first[roomed]'
-        )
-        out_label = 'roomed'
-        extra_inputs = ['-i', str(room_tone_path)]
-    else:
-        # Synthetic pink noise room tone
-        filters.append(
-            f'anoisesrc=color=pink:sample_rate={sample_rate}:'
-            f'amplitude=0.002:duration={total_duration:.6f}[roomnoise]'
-        )
-        filters.append(
-            f'[{out_label}][roomnoise]amix=inputs=2:weights=1 0.12:'
-            f'duration=first[roomed]'
-        )
-        out_label = 'roomed'
+    # Room tone: mix underneath (skip if no_room_tone)
+    if not no_room_tone:
+        if room_tone_path:
+            # Loop room tone to match duration, mix at low volume
+            filters.append(
+                f'[room]aloop=loop=-1:size=2e9,atrim=duration={total_duration:.6f},'
+                f'volume={room_tone_vol}[roomvol]'
+            )
+            filters.append(
+                f'[{out_label}][roomvol]amix=inputs=2:weights=1 {room_tone_vol}:'
+                f'duration=first[roomed]'
+            )
+            out_label = 'roomed'
+            extra_inputs = ['-i', str(room_tone_path)]
+        else:
+            # Synthetic pink noise room tone
+            filters.append(
+                f'anoisesrc=color=pink:sample_rate={sample_rate}:'
+                f'amplitude=0.002:duration={total_duration:.6f}[roomnoise]'
+            )
+            filters.append(
+                f'[{out_label}][roomnoise]amix=inputs=2:weights=1 0.12:'
+                f'duration=first[roomed]'
+            )
+            out_label = 'roomed'
 
     return filters, out_label, extra_inputs
 
@@ -322,24 +274,12 @@ def add_realism(input_path, output_path, overlap_chance=0.15,
         return True
 
     # Build and run ffmpeg
-    use_room = not no_room_tone
     filters, out_label, extra_inputs = build_filter_complex(
         turns, actions, total_duration, sample_rate,
-        room_tone_path if room_tone_path else None if not use_room else None,
-        room_tone_vol
+        room_tone_path=room_tone_path,
+        room_tone_vol=room_tone_vol,
+        no_room_tone=no_room_tone,
     )
-
-    # If no_room_tone, rebuild without room tone
-    if no_room_tone:
-        # Remove the last two filter lines (room tone generation and mixing)
-        # and use 'joined' as output
-        filters_no_room = []
-        for f in filters:
-            if 'anoisesrc' in f or 'roomnoise' in f or 'roomed' in f:
-                continue
-            filters_no_room.append(f)
-        filters = filters_no_room
-        out_label = 'joined'
 
     filter_complex = ';'.join(filters)
 
@@ -369,11 +309,18 @@ def add_realism(input_path, output_path, overlap_chance=0.15,
 
 
 def parse_range(s):
-    """Parse 'min-max' into (min, max) tuple of ints."""
-    parts = s.split('-')
-    if len(parts) == 2:
-        return (int(parts[0]), int(parts[1]))
-    val = int(parts[0])
+    """Parse 'min-max' into (min, max) tuple of positive ints."""
+    parts = s.split('-', 1)
+    if len(parts) == 2 and parts[0] and parts[1]:
+        lo, hi = int(parts[0]), int(parts[1])
+        if lo < 0 or hi < 0:
+            raise argparse.ArgumentTypeError(f"Range values must be positive: {s}")
+        if lo > hi:
+            raise argparse.ArgumentTypeError(f"Min must be <= max: {s}")
+        return (lo, hi)
+    val = int(s)
+    if val < 0:
+        raise argparse.ArgumentTypeError(f"Value must be positive: {s}")
     return (val, val)
 
 

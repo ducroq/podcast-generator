@@ -143,8 +143,12 @@ def generate_podcast(script_path, output_path, test_lines=None, skip_master=Fals
         if master_audio(wav_path, mp3_path):
             size_mb = mp3_path.stat().st_size / (1024 * 1024)
             print(f'Mastered: {mp3_path} ({size_mb:.1f} MB)')
+            # Clean up intermediate WAV if MP3 was requested
+            if output_path.suffix.lower() == '.mp3' and wav_path.exists():
+                wav_path.unlink()
+                print(f'Cleaned up intermediate: {wav_path}')
         else:
-            print('Mastering failed, wav file available')
+            print(f'Mastering failed, wav file available: {wav_path}')
     else:
         print('Skipping mastering (--no-master flag)')
 

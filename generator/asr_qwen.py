@@ -6,7 +6,7 @@ import time
 from pathlib import Path
 from qwen_asr import Qwen3ASRModel
 
-VOICE_REF_DIR = Path("/home/hcl/voice_refs")
+VOICE_REF_DIR = Path.home() / "voice_refs"
 ENGLISH_VOICES = [
     "alex.mp3", "alex-dutch.mp3", "alex-english.mp3", "daan_en.mp3",
     "ember.mp3", "emma.mp3", "emma_en.mp3", "emma_english_sample.mp3",
@@ -30,12 +30,16 @@ print(f"Loaded in {time.time() - t0:.1f}s")
 results = {}
 for fname in ENGLISH_VOICES:
     path = str(VOICE_REF_DIR / fname)
-    out = model.transcribe(audio=path, language="English")
-    text = out[0].text.strip()
-    results[fname] = text
-    print(f"  {fname}: {text[:80]}...")
+    try:
+        out = model.transcribe(audio=path, language="English")
+        text = out[0].text.strip()
+        results[fname] = text
+        print(f"  {fname}: {text[:80]}...")
+    except Exception as e:
+        print(f"  {fname}: FAILED ({e})")
+        results[fname] = f"ERROR: {e}"
 
-out_path = Path("/home/hcl/podcast-generator/asr_qwen_results.json")
+out_path = Path.home() / "podcast-generator" / "asr_qwen_results.json"
 with open(out_path, "w", encoding="utf-8") as f:
     json.dump(results, f, indent=2, ensure_ascii=False)
 print(f"\nSaved to {out_path}")

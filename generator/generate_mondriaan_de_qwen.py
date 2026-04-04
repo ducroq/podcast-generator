@@ -3,7 +3,10 @@
 import torch
 import soundfile as sf
 import numpy as np
+from pathlib import Path
 from qwen_tts import Qwen3TTSModel
+
+VOICE_REF_DIR = Path.home() / "voice_refs"
 
 print("Loading Qwen3-TTS 1.7B model...")
 model = Qwen3TTSModel.from_pretrained(
@@ -16,7 +19,7 @@ print("Model loaded.")
 # Using qwen_refs with EXACTLY matched ref_text (generated via ElevenLabs with known text)
 VOICES = {
     "emma_de": {
-        "ref": "/home/hcl/voice_refs/qwen_refs/qwen_ref_emma_de.mp3",
+        "ref": str(VOICE_REF_DIR / "qwen_refs" / "qwen_ref_emma_de.mp3"),
         "ref_text": (
             "Willkommen zu einer neuen Folge ueber Piet Mondriaan. Heute sprechen "
             "wir ueber seine fruehen Jahre in den Niederlanden und den Moment, in "
@@ -26,7 +29,7 @@ VOICES = {
         "lang": "German",
     },
     "lucas_de": {
-        "ref": "/home/hcl/voice_refs/qwen_refs/qwen_ref_lucas_de.mp3",
+        "ref": str(VOICE_REF_DIR / "qwen_refs" / "qwen_ref_lucas_de.mp3"),
         "ref_text": (
             "Was Mondriaan in Paris entdeckte, veraenderte alles. Der Kubismus "
             "zeigte ihm, dass man die Realitaet zerlegen konnte, in Flaechen, in "
@@ -36,7 +39,7 @@ VOICES = {
         "lang": "German",
     },
     "piet_de": {
-        "ref": "/home/hcl/voice_refs/qwen_refs/qwen_ref_piet_de.mp3",
+        "ref": str(VOICE_REF_DIR / "qwen_refs" / "qwen_ref_piet_de.mp3"),
         "ref_text": (
             "Die Menschen verstehen nicht, dass es in meiner Kunst nicht um das "
             "Weglassen geht, sondern um das Finden. Jede Linie, jede Flaeche, "
@@ -69,8 +72,8 @@ SCRIPT_DE = [
 ]
 
 import os
-OUTPUT_DIR = "/home/hcl/podcast-generator/mondriaan_output/de_qwen"
-os.makedirs(OUTPUT_DIR, exist_ok=True)
+OUTPUT_DIR = Path.home() / "podcast-generator" / "mondriaan_output" / "de_qwen"
+os.makedirs(str(OUTPUT_DIR), exist_ok=True)
 
 print(f"\n=== Generating DE introduction ({len(SCRIPT_DE)} lines) ===")
 all_audio = []
@@ -90,10 +93,10 @@ for i, (speaker, text) in enumerate(SCRIPT_DE):
     all_audio.append(wavs[0])
     pause = np.zeros(int(sr * 0.4), dtype=np.float32)
     all_audio.append(pause)
-    sf.write(f"{OUTPUT_DIR}/de_{i+1:02d}_{speaker}.wav", wavs[0], sr)
+    sf.write(str(OUTPUT_DIR / f"de_{i+1:02d}_{speaker}.wav"), wavs[0], sr)
 
 full = np.concatenate(all_audio)
-out_path = f"{OUTPUT_DIR}/mondriaan_intro_de_qwen.wav"
+out_path = str(OUTPUT_DIR / "mondriaan_intro_de_qwen.wav")
 sf.write(out_path, full, sr_out)
 print(f"\nSaved full intro: {out_path}")
 print("Done!")

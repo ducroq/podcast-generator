@@ -98,7 +98,7 @@ def generate_sample(name, config, output_dir):
         },
     }
 
-    response = requests.post(url, json=data, headers=headers)
+    response = requests.post(url, json=data, headers=headers, timeout=(10, 300))
     if response.status_code != 200:
         print(f"    FAILED: {response.status_code} - {response.text[:200]}")
         return False

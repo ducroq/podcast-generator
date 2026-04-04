@@ -23,33 +23,22 @@ import subprocess
 import sys
 from pathlib import Path
 
+from audio_utils import get_duration
+
 
 def transcribe(audio_path, model_size="base", language="en"):
-    """Transcribe audio file using faster-whisper."""
+    """Transcribe audio file using faster-whisper via subprocess."""
+    script = str(Path(__file__).parent / "_transcribe_worker.py")
     cmd = [
-        sys.executable, "-c", f"""
-from faster_whisper import WhisperModel
-model = WhisperModel("{model_size}", device="cuda", compute_type="float16")
-segments, _ = model.transcribe("{audio_path}", language="{language}")
-print(" ".join(s.text.strip() for s in segments))
-"""
+        sys.executable, script,
+        "--audio", str(audio_path),
+        "--model", model_size,
+        "--language", language,
     ]
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
         return None
     return result.stdout.strip()
-
-
-def get_duration(audio_path):
-    """Get audio duration in seconds."""
-    cmd = [
-        'ffprobe', '-v', 'error',
-        '-show_entries', 'format=duration',
-        '-of', 'default=noprint_wrappers=1:nokey=1',
-        str(audio_path)
-    ]
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    return float(result.stdout.strip())
 
 
 def normalize_text(text):
@@ -93,7 +82,7 @@ def check_hallucination(expected_text, transcribed_text):
             if transcribed_words[i] == last_expected:
                 append_start = i + 1
                 break
-        if append_start and append_start < len(transcribed_words) - 1:
+        if append_start is not None and append_start < len(transcribed_words) - 1:
             extra = " ".join(transcribed_words[append_start:])
             issues.append(f"HALLUCINATION_END: extra words at end: \"{extra}\"")
 
@@ -169,13 +158,36 @@ def validate_manifest(manifest_path):
         ...
     ]
     """
+    manifest_dir = Path(manifest_path).parent
+
     with open(manifest_path) as f:
         manifest = json.load(f)
 
     results = []
     flagged = 0
     for entry in manifest:
-        result = validate_single(entry["file"], entry["text"],
+        file_path = Path(entry["file"])
+        # Reject absolute paths and path traversal
+        if file_path.is_absolute() or '..' in file_path.parts:
+            results.append({
+                "file": str(file_path),
+                "status": "ERROR",
+                "issues": [f"Rejected path: must be relative without '..'"],
+            })
+            flagged += 1
+            continue
+
+        resolved = (manifest_dir / file_path).resolve()
+        if not resolved.is_relative_to(manifest_dir.resolve()):
+            results.append({
+                "file": str(file_path),
+                "status": "ERROR",
+                "issues": ["Rejected path: resolves outside manifest directory"],
+            })
+            flagged += 1
+            continue
+
+        result = validate_single(str(resolved), entry["text"],
                                  language=entry.get("language", "en"))
         results.append(result)
         if result["status"] == "FLAGGED":
@@ -191,8 +203,10 @@ def print_result(result):
     print(f"  [{icon}] {Path(result['file']).name} ({result.get('duration', '?')}s)")
 
     if result.get("transcription"):
-        print(f"       Expected:    {result['expected_text'][:80]}...")
-        print(f"       Transcribed: {result['transcription'][:80]}...")
+        expected = result['expected_text']
+        transcribed = result['transcription']
+        print(f"       Expected:    {expected[:80]}{'...' if len(expected) > 80 else ''}")
+        print(f"       Transcribed: {transcribed[:80]}{'...' if len(transcribed) > 80 else ''}")
 
     for issue in result.get("issues", []):
         print(f"       -> {issue}")

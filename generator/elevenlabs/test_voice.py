@@ -13,51 +13,14 @@ import sys
 from pathlib import Path
 from dotenv import load_dotenv
 from elevenlabs import ElevenLabs
-from elevenlabs.types import DialogueInput, VoiceSettings
+from elevenlabs.types import DialogueInput
 
 SCRIPT_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(SCRIPT_DIR))
+from src.voice_settings import get_voice_settings, parse_line
+
 load_dotenv(SCRIPT_DIR / '.env')
 client = ElevenLabs(api_key=os.getenv('ELEVENLABS_API_KEY'))
-
-BASE_SIMILARITY = 0.95
-SPEED_ADJUSTMENT = -0.10
-
-EMOTIONAL_VARIANTS = {
-    "emma": {
-        "default": {"stability": 0.4, "style": 0.4},
-        "enthusiastic": {"stability": 0.35, "style": 0.5},
-        "warm": {"stability": 0.45, "style": 0.35},
-        "curious": {"stability": 0.38, "style": 0.45},
-        "thoughtful": {"stability": 0.5, "style": 0.3},
-    },
-    "lucas": {
-        "default": {"stability": 0.35, "style": 0.4},
-        "warm": {"stability": 0.4, "style": 0.35},
-        "enthusiastic": {"stability": 0.3, "style": 0.5},
-        "thoughtful": {"stability": 0.45, "style": 0.3},
-        "calm": {"stability": 0.5, "style": 0.25},
-    },
-    "piet": {
-        "default": {"stability": 0.5, "style": 0.3},
-        "thoughtful": {"stability": 0.6, "style": 0.2},
-    }
-}
-
-def parse_line(line):
-    match = re.match(r'(\w+):\s*\[(\w+(?:\s+)*)\]\s*(.*)', line.strip())
-    if match:
-        return match.group(1).lower(), match.group(2).lower(), match.group(3).strip()
-    return None, None, None
-
-def get_voice_settings(speaker, emotion):
-    variants = EMOTIONAL_VARIANTS.get(speaker, {})
-    variant = variants.get(emotion, variants.get("default", {"stability": 0.4, "style": 0.4}))
-    adjusted_stability = max(0.15, variant["stability"] + SPEED_ADJUSTMENT)
-    return VoiceSettings(
-        stability=adjusted_stability,
-        similarity_boost=BASE_SIMILARITY,
-        style=variant["style"]
-    )
 
 def main():
     import argparse

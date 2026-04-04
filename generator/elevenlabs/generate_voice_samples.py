@@ -143,7 +143,7 @@ def generate_sample(name, voice_id, text, output_path, model_id):
     }
 
     print(f"  Generating {name}...")
-    response = requests.post(url, json=data, headers=headers)
+    response = requests.post(url, json=data, headers=headers, timeout=(10, 300))
 
     if response.status_code != 200:
         print(f"  ERROR: {response.status_code} - {response.text[:200]}")
