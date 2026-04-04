@@ -28,7 +28,11 @@ VOICE_REFS = {
 }
 
 def parse_line(line):
-    """Parse a dialogue line: 'Speaker: [emotion] Text'"""
+    """Parse a dialogue line: 'Speaker: [emotion] Text'
+
+    Canonical implementation: generator/elevenlabs/src/voice_settings.py:parse_line
+    Kept here to avoid cross-package import (chatterbox runs on gpu-server).
+    """
     match = re.match(r'(\w+):\s*\[(\w+(?:\s+\w+)*)\]\s*(.*)', line.strip())
     if match:
         return match.group(1).lower(), match.group(2).lower(), match.group(3).strip()

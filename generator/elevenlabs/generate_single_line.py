@@ -146,30 +146,19 @@ Auto-detection:
     if not api_key:
         raise ValueError("ELEVENLABS_API_KEY not found in .env file")
 
-    # Extract emotion BEFORE parsing (parser strips it)
-    # Pattern: [speaker]: [emotion] text OR Speaker: [emotion] text
-    emotion_match = re.search(r'\[(\w+)\]:\s*\[(\w+(?:\s+\w+)*)\]\s*(.*)', input_line)
-    if not emotion_match:
-        # Also try: Speaker: [emotion] text (without brackets around speaker)
-        emotion_match = re.search(r'(\w+):\s*\[(\w+(?:\s+\w+)*)\]\s*(.*)', input_line)
-    if emotion_match:
-        speaker = emotion_match.group(1)
-        emotion = emotion_match.group(2).lower()
-        text = emotion_match.group(3).strip()
-    else:
-        # No emotion tag, parse normally
-        dialogue_parser = DialogueParser()
-        lines = dialogue_parser.parse_text(input_line)
+    # Parse the dialogue line (parser now preserves emotion tags)
+    dialogue_parser = DialogueParser()
+    lines = dialogue_parser.parse_text(input_line)
 
-        if not lines:
-            print("Error: Could not parse the dialogue line")
-            print("Expected format: [speaker]: [optional_tone] dialogue text")
-            sys.exit(1)
+    if not lines:
+        print("Error: Could not parse the dialogue line")
+        print("Expected format: [speaker]: [optional_tone] dialogue text")
+        sys.exit(1)
 
-        line = lines[0]
-        speaker = line.speaker
-        emotion = "default"
-        text = line.text
+    line = lines[0]
+    speaker = line.speaker
+    emotion = line.emotion
+    text = line.text
 
     # Get voice mapping
     voice_config = VoiceConfig(str(SCRIPT_DIR / '.env'))

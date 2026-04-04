@@ -19,12 +19,13 @@ from typing import List, Dict
 class DialogueLine:
     """Represents a single line of dialogue."""
 
-    def __init__(self, speaker: str, text: str):
+    def __init__(self, speaker: str, text: str, emotion: str = "default"):
         self.speaker = speaker.upper()
         self.text = text.strip()
+        self.emotion = emotion.lower()
 
     def __repr__(self):
-        return f"DialogueLine(speaker='{self.speaker}', text='{self.text[:30]}...')"
+        return f"DialogueLine(speaker='{self.speaker}', emotion='{self.emotion}', text='{self.text[:30]}...')"
 
 
 class DialogueParser:
@@ -32,10 +33,10 @@ class DialogueParser:
 
     def __init__(self, narrator_name: str = "NARRATOR"):
         self.narrator_name = narrator_name
-        # Pattern to match "[speaker]: text" or "[speaker]: [tone] text"
-        self.bracket_speaker_pattern = re.compile(r'^\[(\w+)\]:\s*(?:\[[\w\s]+\]\s*)?(.+)$')
-        # Pattern to match "SPEAKER: text"
-        self.caps_speaker_pattern = re.compile(r'^([A-Z_]+):\s*(.+)$')
+        # Pattern to match "[speaker]: [tone] text" or "[speaker]: text"
+        self.bracket_speaker_pattern = re.compile(r'^\[(\w+)\]:\s*(?:\[([\w\s]+)\]\s*)?(.+)$')
+        # Pattern to match "SPEAKER: [tone] text" or "SPEAKER: text"
+        self.caps_speaker_pattern = re.compile(r'^([A-Z_]+):\s*(?:\[([\w\s]+)\]\s*)?(.+)$')
 
     def parse_file(self, filepath: str) -> List[DialogueLine]:
         """Parse a dialogue script file and return a list of DialogueLine objects."""
@@ -67,16 +68,18 @@ class DialogueParser:
             match = self.bracket_speaker_pattern.match(line)
             if match:
                 speaker = match.group(1)
-                dialogue_text = match.group(2)
-                lines.append(DialogueLine(speaker, dialogue_text))
+                emotion = match.group(2) or "default"
+                dialogue_text = match.group(3)
+                lines.append(DialogueLine(speaker, dialogue_text, emotion))
                 continue
 
             # Try to match caps speaker pattern: SPEAKER:
             match = self.caps_speaker_pattern.match(line)
             if match:
                 speaker = match.group(1)
-                dialogue_text = match.group(2)
-                lines.append(DialogueLine(speaker, dialogue_text))
+                emotion = match.group(2) or "default"
+                dialogue_text = match.group(3)
+                lines.append(DialogueLine(speaker, dialogue_text, emotion))
                 continue
 
             # Lines without speaker are skipped (title lines, etc.)
