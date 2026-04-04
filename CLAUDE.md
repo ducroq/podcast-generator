@@ -52,8 +52,12 @@ python generate_episode.py script.txt --lang de --output-dir output/
 # Repair single line
 python generate_single_line.py "Emma: [excited] This is amazing!" fix_01
 
-# Trim silences (after generation, before mixing)
-python generator/trim_silences.py input.mp3 output.mp3 --no-loudnorm
+# Trim silences (after generation, before mixing — loudnorm OFF by default)
+python generator/trim_silences.py input.mp3 output.mp3
+
+# Validate TTS output (always writes validation.json alongside audio)
+python generator/validate_tts.py . --manifest manifest.json --language en --engine qwen
+python generator/validate_tts.py . --manifest manifest.json --revalidate-flagged  # only re-check failures
 
 # Master (after mixing, always last)
 ffmpeg -i mix.mp3 -af "loudnorm=I=-16:TP=-1.5:LRA=11" -codec:a libmp3lame -b:a 192k final.mp3
@@ -160,8 +164,10 @@ Use different engines for different voices based on blind test results:
 ## Post-Processing Pipeline
 
 ```
-Generate → Trim silences → Add realism → Mix music in DAW → Master with FFmpeg
+Generate → Validate (ASR) → Trim silences → Add realism → Mix music in DAW → Master with FFmpeg
 ```
+
+Validation runs automatically after generation. Each output directory gets a `validation.json` with per-line ASR results. Flagged lines should be re-generated before proceeding. Use `--revalidate-flagged` to only re-check previously failed lines.
 
 ### add_realism.py (after trim_silences, before mixing)
 

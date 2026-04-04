@@ -34,19 +34,34 @@ Sync new refs: `scp voices/*.mp3 gpu-server:~/voice_refs/`
 
 ## Validating TTS Output
 
-Always validate after Qwen generation (hallucination risk). Run on gpu-server (needs faster-whisper):
+Always validate after Qwen generation (hallucination risk). Run on gpu-server (needs faster-whisper).
+Validation always writes `validation.json` alongside the audio — no opt-in needed.
 
 ```bash
 source ~/podcast-generator/vox-env/bin/activate
 
 # Single file
-python generator/validate_tts.py output.wav "Expected text here"
+python generator/validate_tts.py output.wav "Expected text here" --engine qwen
 
 # Batch: create manifest.json with [{"file": "out1.wav", "text": "expected"}, ...]
-python generator/validate_tts.py . --manifest manifest.json
+python generator/validate_tts.py . --manifest manifest.json --language en --engine qwen
 
-# Exit code 1 = flagged files. Re-generate those.
+# After re-generating flagged files, only re-check the failures:
+python generator/validate_tts.py . --manifest manifest.json --revalidate-flagged
+
+# Exit code 1 = flagged files. Reports saved to validation.json in the audio directory.
 ```
+
+### Validation report format
+
+Each `validation.json` contains:
+- `validated_at` — UTC timestamp
+- `engine` — which TTS engine was used
+- `language` — language code
+- `summary` — total/ok/flagged/errors counts
+- `results[]` — per-line: file, status, duration, expected_text, transcription, issues
+
+Previous reports are rotated to `validation_prev.json` so you can compare across runs.
 
 ## Qwen3-TTS Workflow
 

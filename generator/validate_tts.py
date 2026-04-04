@@ -1,19 +1,14 @@
 #!/usr/bin/env python3
 """
 Validate TTS output for hallucinations by comparing generated audio against
-the intended text using ASR transcription.
+the intended text using ASR transcription. Always writes a validation report.
 
 Usage:
     python generator/validate_tts.py output.wav "Expected text here"
-    python generator/validate_tts.py output_dir/ --manifest manifest.json
-    python generator/validate_tts.py output.wav "Expected text" --fix --ref-audio ref.mp3 --ref-text "ref transcript"
+    python generator/validate_tts.py . --manifest manifest.json
+    python generator/validate_tts.py . --manifest manifest.json --revalidate-flagged
 
-Checks:
-  1. Transcribe output with faster-whisper
-  2. Compare against expected text (word overlap)
-  3. Flag if output has extra words at start/end (hallucination)
-  4. Flag if duration is suspicious for text length
-  5. Optionally re-generate flagged samples (--fix)
+The validation report (validation.json) is always saved alongside the audio.
 """
 
 import argparse
@@ -21,6 +16,7 @@ import json
 import re
 import subprocess
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 from audio_utils import get_duration
@@ -61,7 +57,6 @@ def check_hallucination(expected_text, transcribed_text):
 
     # Check for extra words at the start (common Qwen hallucination)
     if len(transcribed_words) > len(expected_words):
-        # Find where expected text starts in transcribed text
         first_expected = expected_words[0] if expected_words else ""
         prepend_count = 0
         for w in transcribed_words:
@@ -76,7 +71,6 @@ def check_hallucination(expected_text, transcribed_text):
     # Check for extra words at the end
     if len(transcribed_words) > len(expected_words) + 3:
         last_expected = expected_words[-1] if expected_words else ""
-        # Find last occurrence of last expected word
         append_start = None
         for i in range(len(transcribed_words) - 1, -1, -1):
             if transcribed_words[i] == last_expected:
@@ -107,7 +101,7 @@ def check_hallucination(expected_text, transcribed_text):
 
 WORD_DURATION = {
     "en": 0.35,
-    "de": 0.45,  # German has longer compound words
+    "de": 0.45,
     "nl": 0.35,
 }
 
@@ -121,7 +115,6 @@ def validate_single(audio_path, expected_text, language="en"):
 
     duration = get_duration(audio_path)
 
-    # Expected duration varies by language
     expected_words = len(expected_text.split())
     expected_duration = expected_words * WORD_DURATION.get(language, 0.35)
     duration_ratio = duration / max(expected_duration, 0.1)
@@ -137,7 +130,6 @@ def validate_single(audio_path, expected_text, language="en"):
 
     is_ok, issues = check_hallucination(expected_text, transcription)
 
-    # Duration sanity check
     if duration_ratio > 2.0:
         issues.append(f"DURATION: {duration:.1f}s is {duration_ratio:.1f}x expected ({expected_duration:.1f}s)")
         is_ok = False
@@ -155,8 +147,8 @@ def validate_single(audio_path, expected_text, language="en"):
     }
 
 
-def validate_manifest(manifest_path):
-    """Validate multiple files from a JSON manifest.
+def validate_manifest(manifest_path, skip_passed=False):
+    """Validate files from a JSON manifest. Returns (results, flagged_count).
 
     Manifest format:
     [
@@ -164,22 +156,35 @@ def validate_manifest(manifest_path):
         {"file": "output_2.wav", "text": "Expected text for line 2"},
         ...
     ]
+
+    If skip_passed=True and a previous validation.json exists, only re-validates
+    entries that were FLAGGED or ERROR last time.
     """
     manifest_dir = Path(manifest_path).parent
 
     with open(manifest_path) as f:
         manifest = json.load(f)
 
+    # Load previous report if skipping passed entries
+    previous = {}
+    if skip_passed:
+        report = load_report(manifest_dir)
+        if report:
+            for r in report.get("results", []):
+                previous[r["file"]] = r
+
     results = []
     flagged = 0
+    skipped = 0
     for entry in manifest:
         file_path = Path(entry["file"])
+
         # Reject absolute paths and path traversal
         if file_path.is_absolute() or '..' in file_path.parts:
             results.append({
                 "file": str(file_path),
                 "status": "ERROR",
-                "issues": [f"Rejected path: must be relative without '..'"],
+                "issues": ["Rejected path: must be relative without '..'"],
             })
             flagged += 1
             continue
@@ -194,13 +199,75 @@ def validate_manifest(manifest_path):
             flagged += 1
             continue
 
+        # Skip previously passed entries
+        prev = previous.get(str(resolved))
+        if prev and prev.get("status") == "OK":
+            results.append(prev)
+            skipped += 1
+            continue
+
         result = validate_single(str(resolved), entry["text"],
                                  language=entry.get("language", "en"))
         results.append(result)
         if result["status"] == "FLAGGED":
             flagged += 1
 
+    if skipped:
+        print(f"  Skipped {skipped} previously passed entries")
+
     return results, flagged
+
+
+def build_report(results, language="en", engine=None, manifest_path=None):
+    """Build a structured validation report."""
+    ok = sum(1 for r in results if r["status"] == "OK")
+    flagged = sum(1 for r in results if r["status"] == "FLAGGED")
+    errors = sum(1 for r in results if r["status"] == "ERROR")
+
+    return {
+        "validated_at": datetime.now(timezone.utc).isoformat(),
+        "language": language,
+        "engine": engine,
+        "manifest": str(manifest_path) if manifest_path else None,
+        "summary": {
+            "total": len(results),
+            "ok": ok,
+            "flagged": flagged,
+            "errors": errors,
+        },
+        "results": results,
+    }
+
+
+def save_report(report, output_dir):
+    """Save validation report to output_dir/validation.json.
+
+    If a previous report exists, it is preserved as validation_prev.json
+    so you can compare across runs.
+    """
+    output_dir = Path(output_dir)
+    report_path = output_dir / "validation.json"
+    prev_path = output_dir / "validation_prev.json"
+
+    if report_path.exists():
+        # Rotate: current → prev (keep one generation of history)
+        if prev_path.exists():
+            prev_path.unlink()
+        report_path.rename(prev_path)
+
+    with open(report_path, "w", encoding="utf-8") as f:
+        json.dump(report, f, indent=2, ensure_ascii=False)
+
+    return report_path
+
+
+def load_report(output_dir):
+    """Load an existing validation report, or None if not found."""
+    report_path = Path(output_dir) / "validation.json"
+    if not report_path.exists():
+        return None
+    with open(report_path, encoding="utf-8") as f:
+        return json.load(f)
 
 
 def print_result(result):
@@ -219,29 +286,66 @@ def print_result(result):
         print(f"       -> {issue}")
 
 
+def print_summary(report):
+    """Print the report summary."""
+    s = report["summary"]
+    print(f"\n{'='*50}")
+    print(f"VALIDATION REPORT — {report['validated_at'][:10]}")
+    if report.get("engine"):
+        print(f"Engine: {report['engine']}")
+    print(f"Language: {report['language']}")
+    print(f"Total: {s['total']}  OK: {s['ok']}  Flagged: {s['flagged']}  Errors: {s['errors']}")
+    print(f"{'='*50}")
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Validate TTS output for hallucinations")
     parser.add_argument("input", help="Audio file or directory")
     parser.add_argument("expected_text", nargs="?", help="Expected text (for single file)")
     parser.add_argument("--manifest", help="JSON manifest with file/text pairs")
     parser.add_argument("--language", default="en", help="Language code (default: en)")
+    parser.add_argument("--engine", help="TTS engine used (stored in report)")
+    parser.add_argument("--revalidate-flagged", action="store_true",
+                        help="Only re-validate previously FLAGGED/ERROR entries")
 
     args = parser.parse_args()
 
     if args.manifest:
-        results, flagged = validate_manifest(args.manifest)
-        print(f"\nValidated {len(results)} files, {flagged} flagged:\n")
+        results, flagged = validate_manifest(
+            args.manifest,
+            skip_passed=args.revalidate_flagged,
+        )
+        report = build_report(results, language=args.language,
+                              engine=args.engine, manifest_path=args.manifest)
+
+        # Always save report next to manifest
+        report_dir = Path(args.manifest).parent
+        report_path = save_report(report, report_dir)
+
+        print_summary(report)
+        print()
         for r in results:
             print_result(r)
+        print(f"\nReport saved: {report_path}")
+
     elif args.expected_text:
         result = validate_single(args.input, args.expected_text, args.language)
+        results = [result]
+        report = build_report(results, language=args.language, engine=args.engine)
+
+        # Save report next to the audio file
+        report_dir = Path(args.input).parent
+        report_path = save_report(report, report_dir)
+
+        print_summary(report)
         print()
         print_result(result)
+        print(f"\nReport saved: {report_path}")
+
     else:
         print("Provide either expected_text or --manifest")
         sys.exit(1)
 
     # Exit code: 1 if any flagged
-    flagged_count = sum(1 for r in ([result] if not args.manifest else results)
-                        if r["status"] == "FLAGGED")
+    flagged_count = sum(1 for r in results if r["status"] == "FLAGGED")
     sys.exit(1 if flagged_count > 0 else 0)
