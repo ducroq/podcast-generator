@@ -1,7 +1,26 @@
 # Gotcha Log
 
 <!-- Structured problem/solution journal. Append-only.
-     Part of the self-learning loop: Capture > Surface > Promote > Retire. -->
+     Part of the self-learning loop: Capture → Surface → Promote → Retire.
+
+     PROMOTION LIFECYCLE:
+     - New entries start here (Capture phase)
+     - At end-of-session, review for patterns (Surface phase)
+     - When an entry recurs 2-3 times, promote it to the relevant topic file
+       as an "if X, then Y" pattern (Promote phase)
+     - When a gotcha's root cause is fixed, mark it [RESOLVED] (Retire phase)
+     - Track what you've promoted in the "Promoted" section below
+
+     When the root cause is fixed, mark it resolved here (don't delete). -->
+
+<!-- Template for new entries:
+
+### [Short description] (YYYY-MM-DD)
+**Problem**: What went wrong or was confusing.
+**Root cause**: Why it happened.
+**Fix**: What solved it.
+
+-->
 
 ### Chatterbox venv path is not ~/vox-env (2026-04-01)
 **Problem**: Scripts assume `source ~/vox-env/bin/activate` but chatterbox is actually at `~/podcast-generator/vox-env/bin/activate`. The `~/vox-env/` exists but is broken/empty.
@@ -57,6 +76,14 @@
 3. **Recovery**: Re-generate flagged samples (different seed gives different result)
 
 ## Promoted
+
+<!-- Track gotchas that have been promoted to topic files or the memory index.
+     This helps you avoid re-promoting and shows the loop is working.
+
+     STATUS TAGS:
+     - [PROMOTED] — lesson was moved up the stack (to a topic file, memory index, or project file)
+     - [RESOLVED] — root cause was fixed; entry stays as history
+-->
 
 | Entry | Promoted to | Date |
 |-------|------------|------|
