@@ -70,7 +70,7 @@ Zara: [questioning] But shouldn't we trust people with credentials? That's kind 
 
 Felix: [thoughtful] Fair challenge. And here's the honest answer. Credentials often do correlate with knowledge. But the affiliation doesn't make the idea better. It makes it feel more authoritative. There's a simple test. Would this idea be compelling if a random person said it at a barbecue? If yes, the credentials are decoration.
 
-Alex: [curious] And we're trained not to notice that.
+Alex: [curious] Wait, so... we're trained not to notice that.
 
 Felix: [warm] Twelve years of school. A teacher knows more than you. A doctor knows more than you. By the time you're an adult, "Stanford professor" triggers automatic respect before you've even heard the argument. Usually that shortcut works. Occasionally it gets exploited.
 
@@ -106,7 +106,7 @@ Zara: [calm] So a numbered list with a fancy name.
 
 Alex: [curious] Numbered lists, two-by-two matrices, pyramids. My company has a "proprietary methodology" that's literally one of these with the logo on it.
 
-Felix: [thoughtful] Frameworks do something specific to your brain. When you can place something in a quadrant, you get a feeling of understanding. Your brain rewards you with the sensation of clarity.
+Felix: [thoughtful] Here's what's hidden about frameworks. When you can place something in a quadrant, you get a feeling of understanding. Your brain rewards you with the sensation of clarity.
 
 Alex: [thoughtful] The feeling of information. Not actual information.
 
@@ -146,7 +146,7 @@ Zara: [thoughtful] So you only ever hear from the companies that survived the sh
 
 Felix: [calm] When maybe the method was incidental.
 
-Alex: [thoughtful] Like a horoscope. You make it fit because you want it to fit.
+Alex: [thoughtful] That's the thing though. It's like a horoscope. You make it fit because you want it to fit.
 
 Felix: [calm] Exactly like a horoscope.
 
