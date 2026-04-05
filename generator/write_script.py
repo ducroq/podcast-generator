@@ -297,6 +297,208 @@ def pass_director(client: anthropic.Anthropic, model: str, draft: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Pass 4: Review (three parallel perspectives)
+# ---------------------------------------------------------------------------
+
+REVIEW_FIDELITY_SYSTEM = """\
+You are a source fidelity reviewer for podcast scripts. Compare the script \
+against the original source material and flag factual issues.
+
+For each issue, report as a JSON object:
+{
+  "line": "first few words of the line",
+  "type": "DISTORTION | INVENTION | OMISSION",
+  "severity": "HIGH | MEDIUM | LOW",
+  "explanation": "what's wrong and what the source actually says"
+}
+
+Return a JSON object:
+{
+  "issues": [...],
+  "faithful": ["brief note on what the script gets right", ...]
+}
+
+Only flag simplifications that lose important meaning. Dialogue naturally \
+condenses — that's fine. Flag meaning changes, invented claims, and \
+important nuance that was dropped."""
+
+REVIEW_LISTENER_SYSTEM = """\
+You are reviewing a podcast script from the perspective of the target listener.
+
+Flag issues that affect the listening experience:
+- ATTENTION_DRIFT: where would the listener zone out, and why
+- JARGON: unexplained terms for this audience
+- PACING: sections that drag or rush
+- PREACHY: where it feels like a lecture instead of a conversation
+- SHAREABILITY: moments that would make them share the episode
+
+For each issue, report as a JSON object:
+{
+  "type": "ATTENTION_DRIFT | JARGON | PACING | PREACHY | SHAREABILITY",
+  "line": "first few words of the line",
+  "note": "what's wrong / what works and suggested fix"
+}
+
+Return a JSON object:
+{
+  "issues": [...],
+  "strengths": ["what works well for this audience", ...],
+  "verdict": "one-line overall assessment"
+}"""
+
+REVIEW_NARRATIVE_SYSTEM = """\
+You are reviewing a podcast script against a narrative design checklist.
+
+Score each item as PASS, PARTIAL, or FAIL with specific evidence.
+
+CHECKLIST:
+1. Sounds like a real conversation when read aloud
+2. Turn lengths vary (single-word reactions mixed with monologues)
+3. At least 2-3 interruptions or incomplete thoughts per segment
+4. Host pushes back or disagrees at least once
+5. Host asks questions the listener would ask
+6. Expert gives concrete examples, not just abstractions
+7. Modern relevance feels organic, not bolted on
+8. 2-3 genuine emotional moments
+9. Each segment has a clear emotional arc
+10. Specific, actionable references (books, search terms)
+11. Ping-Pong-Plus pattern (Statement → Question → Deepening → Realization)
+12. Natural speech markers (self-corrections, thinking aloud, 2-3 per segment)
+
+ALSO CHECK:
+- Speaking time ratio: Host ~35%, Expert ~60%, Third voice ~5%
+- Episode structure follows: Opening → Context → Deep dive → Pivot → Application → Closing
+
+Return a JSON object:
+{
+  "scores": [
+    {"item": "checklist item name", "score": "PASS|PARTIAL|FAIL", "evidence": "..."},
+    ...
+  ],
+  "speaking_time": {"speaker1": "X%", ...},
+  "structure_notes": "how well it follows the episode structure",
+  "top_improvements": ["improvement 1", "improvement 2", "improvement 3"],
+  "overall_score": "X/12"
+}"""
+
+
+def pass_review(client: anthropic.Anthropic, model: str, script: str,
+                source_text: str, listener_desc: str = "") -> dict:
+    """Pass 4: Run three review perspectives. Returns combined feedback dict."""
+    results = {}
+
+    # Fidelity review
+    fidelity_msg = (
+        f"Compare this script against the source material.\n\n"
+        f"SOURCE MATERIAL:\n{source_text[:50000]}\n\n"
+        f"SCRIPT:\n{script}"
+    )
+    fidelity_raw = call_llm(client, model, REVIEW_FIDELITY_SYSTEM, fidelity_msg)
+    results["fidelity"] = _parse_json_response(fidelity_raw)
+
+    # Listener review
+    listener_system = REVIEW_LISTENER_SYSTEM
+    if listener_desc:
+        listener_system += f"\n\nTARGET LISTENER: {listener_desc}"
+    listener_msg = f"Review this script:\n\n{script}"
+    listener_raw = call_llm(client, model, listener_system, listener_msg)
+    results["listener"] = _parse_json_response(listener_raw)
+
+    # Narrative design review
+    narrative_msg = f"Review this script:\n\n{script}"
+    narrative_raw = call_llm(client, model, REVIEW_NARRATIVE_SYSTEM, narrative_msg)
+    results["narrative"] = _parse_json_response(narrative_raw)
+
+    return results
+
+
+def format_review_summary(review: dict) -> str:
+    """Format review results as a human-readable summary."""
+    lines = []
+
+    # Fidelity
+    fidelity = review.get("fidelity", {})
+    issues = fidelity.get("issues", [])
+    high = [i for i in issues if i.get("severity") == "HIGH"]
+    med = [i for i in issues if i.get("severity") == "MEDIUM"]
+    lines.append(f"SOURCE FIDELITY: {len(high)} high, {len(med)} medium, "
+                 f"{len(issues) - len(high) - len(med)} low issues")
+    for i in high + med:
+        lines.append(f"  [{i.get('severity')}] {i.get('type')}: {i.get('explanation', '')[:100]}")
+
+    # Listener
+    listener = review.get("listener", {})
+    lines.append(f"\nLISTENER: {listener.get('verdict', 'no verdict')}")
+    for i in listener.get("issues", [])[:5]:
+        lines.append(f"  [{i.get('type')}] {i.get('note', '')[:100]}")
+
+    # Narrative
+    narrative = review.get("narrative", {})
+    lines.append(f"\nNARRATIVE DESIGN: {narrative.get('overall_score', '?')}")
+    fails = [s for s in narrative.get("scores", []) if s.get("score") == "FAIL"]
+    partials = [s for s in narrative.get("scores", []) if s.get("score") == "PARTIAL"]
+    for s in fails:
+        lines.append(f"  FAIL: {s.get('item')} — {s.get('evidence', '')[:80]}")
+    for s in partials[:3]:
+        lines.append(f"  PARTIAL: {s.get('item')} — {s.get('evidence', '')[:80]}")
+    for imp in narrative.get("top_improvements", []):
+        lines.append(f"  -> {imp}")
+
+    return "\n".join(lines)
+
+
+def _parse_json_response(text: str) -> dict:
+    """Parse JSON from LLM response, stripping markdown fences if present."""
+    text = text.strip()
+    if text.startswith("```"):
+        text = text.split("\n", 1)[1]
+    if text.endswith("```"):
+        text = text.rsplit("```", 1)[0]
+    text = text.strip()
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        return {"raw": text, "parse_error": True}
+
+
+# ---------------------------------------------------------------------------
+# Pass 5: Revise (incorporate review feedback)
+# ---------------------------------------------------------------------------
+
+REVISE_SYSTEM = """\
+You are revising a podcast script based on review feedback from three \
+reviewers: a source fidelity checker, a target listener advocate, and a \
+narrative design expert.
+
+Fix the issues flagged by reviewers. Prioritize:
+1. HIGH severity fidelity issues (factual errors) — must fix
+2. FAIL items on narrative checklist — should fix
+3. Listener attention drift / preachy sections — should fix
+4. MEDIUM severity and PARTIAL items — fix if natural
+
+DO NOT:
+- Rewrite sections that reviewers didn't flag
+- Change the topic, speakers, or overall structure
+- Add content not supported by the source material
+- Pad the script significantly (stay within ~10% of original word count)
+
+Output ONLY the revised script. Same format: "Speaker: [emotion] text". \
+No commentary."""
+
+
+def pass_revise(client: anthropic.Anthropic, model: str, script: str,
+                review: dict) -> str:
+    """Pass 5: Revise script based on review feedback."""
+    summary = format_review_summary(review)
+    user_msg = (
+        f"Revise this script based on the review feedback below.\n\n"
+        f"REVIEW FEEDBACK:\n{summary}\n\n"
+        f"SCRIPT:\n{script}"
+    )
+    return call_llm(client, model, REVISE_SYSTEM, user_msg, max_tokens=16384)
+
+
+# ---------------------------------------------------------------------------
 # Format validation
 # ---------------------------------------------------------------------------
 
@@ -348,6 +550,12 @@ def build_parser() -> argparse.ArgumentParser:
                     help="Stop after extraction pass and print the brief as JSON")
     p.add_argument("--no-director", action="store_true",
                     help="Skip the dialogue director pass (faster, rougher output)")
+    p.add_argument("--review", action="store_true",
+                    help="Run review + revise passes after director (adds 3 LLM calls)")
+    p.add_argument("--listener",
+                    help="Target listener description for review (e.g. '28yo new grad, gets handed business books')")
+    p.add_argument("--review-only",
+                    help="Review an existing script file (skip generation, just review)")
     return p
 
 
@@ -378,6 +586,21 @@ def main(argv: list[str] | None = None) -> None:
 
     client = anthropic.Anthropic(api_key=api_key)
 
+    # --- Review-only mode ---
+    if args.review_only:
+        script_path = Path(args.review_only)
+        if not script_path.exists():
+            sys.exit(f"Script not found: {args.review_only}")
+        script = script_path.read_text(encoding="utf-8")
+        source_text = ingest_sources(args.sources)
+        print(f"Reviewing {script_path.name} against {len(args.sources)} source(s)...")
+        review = pass_review(client, args.model, script, source_text, args.listener or "")
+        print(format_review_summary(review))
+        review_path = script_path.with_suffix(".review.json")
+        review_path.write_text(json.dumps(review, indent=2), encoding="utf-8")
+        print(f"\nReview saved to: {review_path}")
+        return
+
     # --- Ingest sources ---
     print(f"Reading {len(args.sources)} source(s)...")
     source_text = ingest_sources(args.sources)
@@ -389,8 +612,17 @@ def main(argv: list[str] | None = None) -> None:
         print(f"  Truncating to {max_chars:,} characters")
         source_text = source_text[:max_chars]
 
+    # Determine total passes
+    total_passes = 3  # extract + draft + director
+    if args.no_director:
+        total_passes -= 1
+    if args.review:
+        total_passes += 2  # review + potential revise
+    pass_num = 0
+
     # --- Pass 1: Extract ---
-    print(f"\nPass 1/3: Extracting key facts and narrative hooks...")
+    pass_num += 1
+    print(f"\nPass {pass_num}/{total_passes}: Extracting key facts and narrative hooks...")
     brief = pass_extract(client, args.model, source_text, args.topic)
     print(f"  Topic: {brief.get('topic', 'unknown')}")
     print(f"  Angle: {brief.get('angle', 'unknown')}")
@@ -403,7 +635,8 @@ def main(argv: list[str] | None = None) -> None:
         return
 
     # --- Pass 2: Draft ---
-    print(f"\nPass 2/3: Drafting {args.length}-minute script for {', '.join(cast)}...")
+    pass_num += 1
+    print(f"\nPass {pass_num}/{total_passes}: Drafting {args.length}-minute script for {', '.join(cast)}...")
     draft = pass_draft(client, args.model, brief, cast, args.lang, args.length)
     draft_lines = [l for l in draft.splitlines() if l.strip()]
     print(f"  {len(draft_lines)} dialogue lines, ~{len(draft.split())} words")
@@ -413,10 +646,38 @@ def main(argv: list[str] | None = None) -> None:
         final = draft
         print("\nSkipping director pass (--no-director)")
     else:
-        print(f"\nPass 3/3: Dialogue director polish...")
+        pass_num += 1
+        print(f"\nPass {pass_num}/{total_passes}: Dialogue director polish...")
         final = pass_director(client, args.model, draft)
         final_lines = [l for l in final.splitlines() if l.strip()]
         print(f"  {len(final_lines)} dialogue lines, ~{len(final.split())} words")
+
+    # --- Pass 4+5: Review & Revise ---
+    if args.review:
+        pass_num += 1
+        print(f"\nPass {pass_num}/{total_passes}: Reviewing script (fidelity + listener + narrative)...")
+        review = pass_review(client, args.model, final, source_text, args.listener or "")
+        print(format_review_summary(review))
+
+        # Write review JSON alongside script
+        review_path = Path(args.output or "script").with_suffix(".review.json")
+        review_path.write_text(json.dumps(review, indent=2), encoding="utf-8")
+        print(f"\n  Review saved to: {review_path}")
+
+        # Check if revision is warranted
+        fidelity_issues = review.get("fidelity", {}).get("issues", [])
+        high_issues = [i for i in fidelity_issues if i.get("severity") == "HIGH"]
+        narrative_scores = review.get("narrative", {}).get("scores", [])
+        fails = [s for s in narrative_scores if s.get("score") == "FAIL"]
+
+        if high_issues or fails:
+            pass_num += 1
+            print(f"\nPass {pass_num}/{total_passes}: Revising script ({len(high_issues)} high-severity + {len(fails)} fails)...")
+            final = pass_revise(client, args.model, final, review)
+            final_lines = [l for l in final.splitlines() if l.strip()]
+            print(f"  {len(final_lines)} dialogue lines, ~{len(final.split())} words")
+        else:
+            print("\n  No high-severity issues or fails — skipping revision pass.")
 
     # --- Validate ---
     warnings = validate_script(final)

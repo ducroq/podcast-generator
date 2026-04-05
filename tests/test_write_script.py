@@ -18,11 +18,19 @@ from generator.write_script import (
     pass_extract,
     pass_draft,
     pass_director,
+    pass_review,
+    pass_revise,
+    format_review_summary,
+    _parse_json_response,
     build_parser,
     LINE_PATTERN,
     EXTRACT_SYSTEM,
     DRAFT_SYSTEM,
     DIRECTOR_SYSTEM,
+    REVIEW_FIDELITY_SYSTEM,
+    REVIEW_LISTENER_SYSTEM,
+    REVIEW_NARRATIVE_SYSTEM,
+    REVISE_SYSTEM,
 )
 
 
@@ -151,6 +159,19 @@ class TestPrompts:
     def test_director_system_mentions_format(self):
         assert "Speaker: [emotion]" in DIRECTOR_SYSTEM
 
+    def test_review_fidelity_system_mentions_json(self):
+        assert "JSON" in REVIEW_FIDELITY_SYSTEM or "json" in REVIEW_FIDELITY_SYSTEM.lower()
+
+    def test_review_listener_system_mentions_attention(self):
+        assert "ATTENTION_DRIFT" in REVIEW_LISTENER_SYSTEM
+
+    def test_review_narrative_system_mentions_checklist(self):
+        assert "PASS" in REVIEW_NARRATIVE_SYSTEM
+        assert "FAIL" in REVIEW_NARRATIVE_SYSTEM
+
+    def test_revise_system_prioritizes_high_severity(self):
+        assert "HIGH" in REVISE_SYSTEM
+
 
 # ---------------------------------------------------------------------------
 # LLM pass mocking
@@ -267,3 +288,114 @@ class TestCLI:
         parser = build_parser()
         with pytest.raises(SystemExit):
             parser.parse_args(["source.txt"])
+
+    def test_review_flag(self):
+        parser = build_parser()
+        args = parser.parse_args(["source.txt", "--cast", "a,b", "--review",
+                                   "--listener", "28yo new grad"])
+        assert args.review is True
+        assert args.listener == "28yo new grad"
+
+    def test_review_only_flag(self):
+        parser = build_parser()
+        args = parser.parse_args(["source.txt", "--cast", "a,b",
+                                   "--review-only", "existing_script.txt"])
+        assert args.review_only == "existing_script.txt"
+
+
+# ---------------------------------------------------------------------------
+# Review and revise passes
+# ---------------------------------------------------------------------------
+
+class TestParseJsonResponse:
+    def test_plain_json(self):
+        result = _parse_json_response('{"key": "value"}')
+        assert result["key"] == "value"
+
+    def test_markdown_fenced_json(self):
+        result = _parse_json_response('```json\n{"key": "value"}\n```')
+        assert result["key"] == "value"
+
+    def test_invalid_json_returns_raw(self):
+        result = _parse_json_response("not json at all")
+        assert result["parse_error"] is True
+        assert "not json" in result["raw"]
+
+
+class TestPassReview:
+    def test_returns_three_review_sections(self):
+        """Review should call the LLM 3 times and return fidelity/listener/narrative."""
+        fidelity = json.dumps({"issues": [], "faithful": ["good"]})
+        listener = json.dumps({"issues": [], "strengths": ["engaging"], "verdict": "good"})
+        narrative = json.dumps({"scores": [], "top_improvements": [], "overall_score": "10/12"})
+
+        client = MagicMock()
+        responses = [fidelity, listener, narrative]
+        msgs = []
+        for r in responses:
+            msg = MagicMock()
+            msg.content = [MagicMock(text=r)]
+            msgs.append(msg)
+        client.messages.create.side_effect = msgs
+
+        result = pass_review(client, "claude-sonnet-4-6",
+                            "Lisa: [curious] Hello", "source text")
+        assert "fidelity" in result
+        assert "listener" in result
+        assert "narrative" in result
+        assert client.messages.create.call_count == 3
+
+    def test_listener_description_included(self):
+        """Listener description should appear in the system prompt."""
+        response = json.dumps({"issues": [], "strengths": [], "verdict": "ok"})
+        client = MagicMock()
+        # We only care about the second call (listener review)
+        msg = MagicMock()
+        msg.content = [MagicMock(text=response)]
+        client.messages.create.return_value = msg
+
+        pass_review(client, "claude-sonnet-4-6", "script", "source",
+                   listener_desc="28yo professional")
+        # Second call should have listener desc in system
+        calls = client.messages.create.call_args_list
+        listener_call = calls[1]
+        assert "28yo professional" in listener_call.kwargs["system"]
+
+
+class TestFormatReviewSummary:
+    def test_formats_fidelity_issues(self):
+        review = {
+            "fidelity": {
+                "issues": [
+                    {"severity": "HIGH", "type": "DISTORTION",
+                     "explanation": "Misquoted the source"},
+                ],
+                "faithful": []
+            },
+            "listener": {"issues": [], "verdict": "Solid episode"},
+            "narrative": {"scores": [], "top_improvements": [], "overall_score": "9/12"},
+        }
+        summary = format_review_summary(review)
+        assert "HIGH" in summary
+        assert "DISTORTION" in summary
+        assert "Solid episode" in summary
+        assert "9/12" in summary
+
+    def test_handles_empty_review(self):
+        review = {"fidelity": {}, "listener": {}, "narrative": {}}
+        summary = format_review_summary(review)
+        assert "SOURCE FIDELITY" in summary
+
+
+class TestPassRevise:
+    def test_returns_revised_script(self):
+        revised = "Lisa: [excited] Fixed version!\nMarc: [warm] Much better."
+        client = make_mock_client(revised)
+        review = {
+            "fidelity": {"issues": [{"severity": "HIGH", "type": "DISTORTION",
+                                     "explanation": "wrong fact"}]},
+            "listener": {"issues": [], "verdict": "ok"},
+            "narrative": {"scores": [], "top_improvements": []},
+        }
+        result = pass_revise(client, "claude-sonnet-4-6", "old script", review)
+        assert "Fixed version" in result
