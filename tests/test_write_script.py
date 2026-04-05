@@ -72,10 +72,8 @@ class TestIngestSource:
     def test_url_without_trafilatura(self):
         """URL ingestion fails gracefully when trafilatura is not installed."""
         with patch.dict("sys.modules", {"trafilatura": None}):
-            # Re-importing won't help since the function uses a local import,
-            # but calling with a URL that can't be fetched should exit.
-            # Just verify the URL detection path is taken.
-            assert "http" in "https://example.com"  # smoke test for URL detection
+            with pytest.raises(SystemExit, match="trafilatura"):
+                ingest_source("https://example.com/article")
 
 
 class TestIngestSources:

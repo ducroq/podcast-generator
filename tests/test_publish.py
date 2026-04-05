@@ -412,7 +412,7 @@ class TestPublishEndToEnd:
         assert (output_dir / "transcript.srt").exists()
         # Chapters should have at least 1 entry
         chapters = json.loads((output_dir / "chapters.json").read_text())
-        assert len(chapters["chapters"]) >= 1
+        assert len(chapters["chapters"]) == 1
 
     def test_custom_title(self, section_audio_files, sample_script, tmp_path):
         output_dir = tmp_path / "published"
