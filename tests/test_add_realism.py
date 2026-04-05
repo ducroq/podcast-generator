@@ -4,7 +4,8 @@ import random
 
 from add_realism import (
     split_into_turns, plan_realism, build_filter_complex, _silence_pad,
-    _breath_filter, parse_range,
+    _breath_filter, parse_range, select_backchannel, parse_script_lines,
+    BACKCHANNEL_TYPES,
 )
 
 
@@ -344,6 +345,100 @@ class TestBuildFilterComplexBreaths:
         assert 'anoisesrc=color=pink' in filter_str  # synthetic breath
         assert 'bandpass' in filter_str
         assert 'bmix' in filter_str  # breath mix label
+
+
+class TestSelectBackchannel:
+    def test_question_gets_agreement(self):
+        assert select_backchannel("What do you think?", "curious") == 'agreement'
+
+    def test_surprise_emotion_gets_surprise(self):
+        assert select_backchannel("This is incredible.", "excited") == 'surprise'
+
+    def test_passionate_gets_surprise(self):
+        assert select_backchannel("Everything changed.", "passionate") == 'surprise'
+
+    def test_long_calm_statement_gets_agreement(self):
+        text = "The thing about this is that it really does change how you think about the whole system and everything around it quite fundamentally."
+        assert select_backchannel(text, "warm") == 'agreement'
+
+    def test_multi_sentence_gets_tracking(self):
+        text = "First point. Second point. Third point. And a conclusion."
+        assert select_backchannel(text, "calm") == 'tracking'
+
+    def test_short_neutral_returns_none(self):
+        assert select_backchannel("Okay.", "calm") is None
+
+    def test_short_question_still_matches(self):
+        assert select_backchannel("Really?", "surprised") is not None
+
+
+class TestParseScriptLines:
+    def test_parses_dialogue_lines(self, tmp_path):
+        script = tmp_path / "test.txt"
+        script.write_text(
+            "Alex: [curious] What happened next?\n"
+            "\n"
+            "Felix: [warm] Let me explain.\n"
+            "====================\n"
+            "SEGMENT TWO\n"
+            "====================\n"
+            "Zara: [surprised] Wait, really?\n",
+            encoding="utf-8"
+        )
+        lines = parse_script_lines(str(script))
+        assert len(lines) == 3
+        assert lines[0] == ("Alex", "curious", "What happened next?")
+        assert lines[1] == ("Felix", "warm", "Let me explain.")
+        assert lines[2] == ("Zara", "surprised", "Wait, really?")
+
+    def test_skips_headers_and_blanks(self, tmp_path):
+        script = tmp_path / "test.txt"
+        script.write_text(
+            "====================\n"
+            "OPENING\n"
+            "====================\n"
+            "\n"
+            "Alex: [warm] Hello.\n",
+            encoding="utf-8"
+        )
+        lines = parse_script_lines(str(script))
+        assert len(lines) == 1
+
+
+class TestPlanRealismBackchannels:
+    def test_content_aware_backchannel_after_question(self):
+        turns = [
+            {'start': 0, 'end': 4, 'duration': 4.0, 'gap_after': 0.5},
+            {'start': 4.5, 'end': 7, 'duration': 2.5, 'gap_after': 0.0},
+        ]
+        script_lines = [
+            ("Felix", "curious", "What do you think about this approach?"),
+            ("Alex", "warm", "I think it works."),
+        ]
+        random.seed(42)
+        actions = plan_realism(
+            turns, overlap_chance=0, overlap_range_ms=(300, 800),
+            jitter_range_ms=(50, 150), filler_chance=1.0,  # force filler
+            fillers_available=[],
+            breath_chance=0, script_lines=script_lines,
+        )
+        # First turn is a question with duration > 3s
+        assert actions[0].get('backchannel_type') == 'agreement'
+        assert actions[0].get('backchannel_word') in BACKCHANNEL_TYPES['agreement']
+
+    def test_no_backchannel_without_script(self):
+        turns = [
+            {'start': 0, 'end': 4, 'duration': 4.0, 'gap_after': 0.5},
+            {'start': 4.5, 'end': 7, 'duration': 2.5, 'gap_after': 0.0},
+        ]
+        random.seed(42)
+        actions = plan_realism(
+            turns, overlap_chance=0, overlap_range_ms=(300, 800),
+            jitter_range_ms=(50, 150), filler_chance=1.0,
+            fillers_available=[], breath_chance=0,
+            script_lines=None,  # no script
+        )
+        assert all(a.get('backchannel_type') is None for a in actions)
 
 
 class TestParseRange:

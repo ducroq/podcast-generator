@@ -27,6 +27,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import re
+
 from audio_utils import detect_silences, get_duration, get_sample_rate
 
 
@@ -61,9 +63,67 @@ def split_into_turns(silences, total_duration):
     return turns
 
 
+# ---------------------------------------------------------------------------
+# Content-aware backchannel placement
+# ---------------------------------------------------------------------------
+
+BACKCHANNEL_TYPES = {
+    'agreement': ['mmhm', 'right', 'yeah'],
+    'surprise': ['oh', 'huh', 'wow'],
+    'tracking': ['right', 'mmhm', 'okay'],
+}
+
+# Emotions that suggest the listener would react with surprise/interest
+SURPRISE_EMOTIONS = {'surprised', 'excited', 'passionate', 'emphatic', 'fascinated'}
+# Emotions that suggest agreement/tracking backchannels
+AGREEMENT_EMOTIONS = {'warm', 'calm', 'thoughtful', 'explaining', 'building'}
+
+
+def parse_script_lines(script_path):
+    """Parse a dialogue script into a list of (speaker, emotion, text) tuples.
+
+    Only returns dialogue lines (skips blanks and section headers).
+    """
+    lines = []
+    line_pattern = re.compile(r'^([A-Za-z_]+):\s*\[(\w[\w\s]*)\]\s*(.+)$')
+    with open(script_path, 'r', encoding='utf-8') as f:
+        for raw in f:
+            raw = raw.strip()
+            m = line_pattern.match(raw)
+            if m:
+                lines.append((m.group(1), m.group(2).lower(), m.group(3)))
+    return lines
+
+
+def select_backchannel(line_text, line_emotion):
+    """Select a backchannel type based on the content of the preceding line.
+
+    Returns a backchannel category ('agreement', 'surprise', 'tracking')
+    or None if no backchannel is warranted.
+    """
+    # After a question → agreement/tracking
+    if line_text.rstrip().endswith('?'):
+        return 'agreement'
+
+    # After a surprising or intense emotion → surprise
+    if line_emotion in SURPRISE_EMOTIONS:
+        return 'surprise'
+
+    # After a long statement (3+ sentences) → tracking
+    sentence_count = len(re.findall(r'[.!?]+', line_text))
+    if sentence_count >= 3:
+        return 'tracking'
+
+    # After agreement-type emotions on substantial turns
+    if line_emotion in AGREEMENT_EMOTIONS and len(line_text.split()) > 15:
+        return 'agreement'
+
+    return None
+
+
 def plan_realism(turns, overlap_chance, overlap_range_ms, jitter_range_ms,
                  filler_chance, fillers_available, breath_chance=0.3,
-                 breaths_available=None, dry_run=False):
+                 breaths_available=None, script_lines=None, dry_run=False):
     """Decide which realism effects to apply to each turn gap.
 
     Returns list of actions per turn:
@@ -103,9 +163,17 @@ def plan_realism(turns, overlap_chance, overlap_range_ms, jitter_range_ms,
                 if gap * 1000 + jitter > 50:
                     action['jitter_ms'] = jitter
 
-            # Filler: insert "uh", "mmhm" etc. under long turns
-            if turn['duration'] > 3.0 and fillers_available and random.random() < filler_chance:
-                action['filler_file'] = random.choice(fillers_available)
+            # Filler / backchannel: insert "uh", "mmhm" etc.
+            # Content-aware: if script lines available, select type based on content
+            if turn['duration'] > 3.0 and random.random() < filler_chance:
+                if script_lines and i < len(script_lines):
+                    _, emotion, text = script_lines[i]
+                    bc_type = select_backchannel(text, emotion)
+                    if bc_type:
+                        action['backchannel_type'] = bc_type
+                        action['backchannel_word'] = random.choice(BACKCHANNEL_TYPES[bc_type])
+                if fillers_available:
+                    action['filler_file'] = random.choice(fillers_available)
 
             # Breath: insert between speaker turns
             # More likely before long turns (>2s) and at gaps >0.3s
@@ -346,6 +414,7 @@ def add_realism(input_path, output_path, overlap_chance=0.25,
                 overlap_range_ms=(300, 800), jitter_range_ms=(50, 150),
                 filler_chance=0.10, fillers_dir=None,
                 breath_chance=0.3, breaths_dir=None,
+                script_path=None,
                 room_tone_path=None, room_tone_vol=0.08,
                 no_room_tone=False, seed=None, dry_run=False):
     """Main pipeline: detect turns, plan effects, render with ffmpeg."""
@@ -391,22 +460,31 @@ def add_realism(input_path, output_path, overlap_chance=0.25,
         if breaths:
             print(f'Breath sounds: {len(breaths)} files from {breaths_dir}')
 
+    # Parse script for content-aware backchannel placement
+    script_lines = None
+    if script_path:
+        script_lines = parse_script_lines(script_path)
+        print(f'Script: {len(script_lines)} dialogue lines from {script_path}')
+
     # Plan effects
     actions = plan_realism(
         turns, overlap_chance, overlap_range_ms, jitter_range_ms,
-        filler_chance, fillers, breath_chance, breaths, dry_run
+        filler_chance, fillers, breath_chance, breaths,
+        script_lines=script_lines, dry_run=dry_run,
     )
 
     # Stats
     overlaps = sum(1 for a in actions if a['action'] == 'overlap')
     jitters = sum(1 for a in actions if a['jitter_ms'] != 0)
-    filler_inserts = sum(1 for a in actions if a['filler_file'])
-    breath_inserts = sum(1 for a in actions if a['breath'])
+    filler_inserts = sum(1 for a in actions if a.get('filler_file'))
+    breath_inserts = sum(1 for a in actions if a.get('breath'))
+    backchannel_inserts = sum(1 for a in actions if a.get('backchannel_type'))
 
     print(f'Planned effects:')
     print(f'  Overlaps: {overlaps}/{len(turns)} turns')
     print(f'  Jittered pauses: {jitters}/{len(turns)} turns')
     print(f'  Filler insertions: {filler_inserts}')
+    print(f'  Backchannels: {backchannel_inserts}')
     print(f'  Breath insertions: {breath_inserts}')
     print(f'  Room tone: {"custom" if room_tone_path else "synthetic pink noise" if not no_room_tone else "none"}')
 
@@ -421,8 +499,10 @@ def add_realism(input_path, output_path, overlap_chance=0.25,
                 extra += f' jitter={action["jitter_ms"]:+d}ms'
             if action['filler_file']:
                 extra += f' filler={Path(action["filler_file"]).name}'
-            if action['breath']:
+            if action.get('breath'):
                 extra += f' breath={action["breath"]}'
+            if action.get('backchannel_type'):
+                extra += f' backchannel={action["backchannel_word"]}({action["backchannel_type"]})'
             print(f'  Turn {i}: {turn["start"]:.2f}-{turn["end"]:.2f}s '
                   f'({turn["duration"]:.2f}s) gap={turn["gap_after"]:.3f}s '
                   f'-> {effect}{extra}')
@@ -501,6 +581,8 @@ if __name__ == '__main__':
                         help='Directory with breath audio files (uses synthetic if omitted)')
     parser.add_argument('--no-breaths', action='store_true',
                         help='Skip breath insertion entirely')
+    parser.add_argument('--script', type=str, default=None,
+                        help='Dialogue script for content-aware backchannel placement')
     parser.add_argument('--room-tone', type=str, default=None,
                         help='Room tone audio file to loop underneath')
     parser.add_argument('--room-tone-vol', type=float, default=0.08,
@@ -531,6 +613,7 @@ if __name__ == '__main__':
         fillers_dir=args.fillers_dir,
         breath_chance=0.0 if args.no_breaths else args.breath_chance,
         breaths_dir=args.breaths_dir,
+        script_path=args.script,
         room_tone_path=args.room_tone,
         room_tone_vol=args.room_tone_vol,
         no_room_tone=args.no_room_tone,
