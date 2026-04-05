@@ -26,6 +26,13 @@
 - Redo with Qwen3-TTS once self-refs are bootstrapped for German voices (emma_de, lucas_de, piet_de)
 - Generation script ready: `output/generate_mondriaan_de_qwen.py`
 
+## Script Generation Pipeline [RESOLVED]
+- Implemented `generator/write_script.py` — 6-pass LLM pipeline (extract → draft → director → review → revise)
+- Review pass: 3 parallel perspectives (source fidelity, target listener, narrative design)
+- First episode produced: `podcasts/it-is-both/script_ep01_the_formula.txt` (Alex/Felix/Zara, ~14 min, 10/12 narrative design)
+- Character definitions: `podcasts/it-is-both/characters/` with signature phrases and never-does rules
+- 49 tests for write_script, 153 total. Issues #22 and #11 closed.
+
 ## Dia2 Single-Pass TTS Evaluation [RESOLVED]
 - Evaluated 2026-04-04: MOS 3.13 (voice cloned) vs our 4.3-4.5 — not competitive
 - User confirmed: "really terrible" compared to Chatterbox/Qwen/ElevenLabs

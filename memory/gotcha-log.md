@@ -100,6 +100,16 @@
 **Root cause**: Original implementation planned fillers but the ffmpeg rendering was never completed. The `filler_input_offset` variable was initialized but unused.
 **Fix**: After concatenation, each filler is added as an extra ffmpeg input, delayed to its absolute timeline position (30-70% through the turn), and mixed at 0.3 volume via `amix`.
 
+### Emotion tags must be from EMOTIONAL_VARIANTS, not invented (2026-04-05)
+**Problem**: Script used [quiet], [skeptical], [building] which aren't in `voice_settings.py` EMOTIONAL_VARIANTS. TTS would produce unpredictable results.
+**Root cause**: Script writing (human or LLM) naturally invents emotion labels that sound right but aren't in the supported set.
+**Fix**: Validate all tags against EMOTIONAL_VARIANTS before generation. `validate_script()` checks format but not tag validity — consider adding tag validation.
+
+### LLM-generated "direct quotes" may be fabricated (2026-04-05)
+**Problem**: Script included a Phil Rosenzweig quote presented as verbatim that was actually a paraphrase/synthesis of his argument. In an episode about epistemic honesty, this is especially bad.
+**Root cause**: LLMs confidently generate plausible-sounding quotes from known authors. The text matches the author's style and argument but isn't a real passage.
+**Fix**: Always reframe LLM-generated attributions as paraphrases ("his argument boils down to...") unless you can verify the exact quote. The source fidelity review agent caught this.
+
 ## Promoted
 
 <!-- Track gotchas that have been promoted to topic files or the memory index.

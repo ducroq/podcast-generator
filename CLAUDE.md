@@ -35,6 +35,7 @@ generator/elevenlabs/           → Primary TTS engine (multilingual, paid API)
 generator/chatterbox/           → English-only TTS (free, requires GPU)
 generator/tada/                 → TADA TTS (archived — env and directory removed)
 generator/whisper/              → Whisper STT (transcription)
+generator/write_script.py        → LLM script generator (source → extract → draft → director → review → revise)
 generator/audio_utils.py        → Shared ffmpeg helpers (detect_silences, get_duration, get_sample_rate)
 generator/quality_checks.py     → Optional quality checks (UTMOS MOS, speaker similarity, language ID)
 generator/validate_tts.py       → Validation pipeline: ASR + quality checks → validation.json
@@ -45,14 +46,20 @@ generator/asr_*.py              → ASR comparison scripts (Whisper vs Qwen3-ASR
 generator/qwen_bootstrap_refs.py → Bootstrap matched refs for Qwen3-TTS
 voices/                         → Master voice library (voices.json + designs/ + *.mp3)
 podcasts/                       → Per-podcast projects (scripts + generated audio)
-tests/                          → Test suite (104 tests, ~7s, no GPU needed)
+tests/                          → Test suite (153 tests, ~8s, no GPU needed)
 docs/                           → Methodology guides
+podcasts/it-is-both/            → "It Is Both" podcast (characters/ + scripts)
 ```
 
 ## Key Commands
 
 ```bash
-# Generate episode
+# Generate script from sources (requires ANTHROPIC_API_KEY)
+python generator/write_script.py sources/article.txt --cast alex,felix,zara --length 20
+python generator/write_script.py source.pdf url.html --cast a,b,c --review  # with review passes
+python generator/write_script.py source.txt --cast a,b --review-only existing_script.txt  # review only
+
+# Generate episode audio
 cd generator/elevenlabs
 python generate_episode.py script.txt --lang de --output-dir output/
 
@@ -87,10 +94,10 @@ Results appear in `validation.json` under the `quality` field per entry.
 ## Testing
 
 ```bash
-python -m pytest tests/ -v  # 104 tests, ~4 seconds, no GPU needed
+python -m pytest tests/ -v  # 153 tests, ~8 seconds, no GPU needed
 ```
 
-Covers: audio_utils, voice_settings, hallucination detection, validation reports, add_realism filter graphs (end-to-end ffmpeg), trim_silences, full pipeline chain.
+Covers: audio_utils, voice_settings, hallucination detection, validation reports, add_realism filter graphs (end-to-end ffmpeg), trim_silences, full pipeline chain, write_script (ingestion, LLM passes, review, CLI).
 
 ## Voice Library (100% Synthetic, 30 voices)
 
@@ -189,6 +196,27 @@ Use different engines for different voices based on blind test results:
 - Can be reinstalled with `pip install hume-tada` if needed for German
 - 10 languages but no Dutch — English and German confirmed working
 - No audio tags — expressiveness from reference clip only
+
+## Full Pipeline
+
+```
+Write script → Generate audio → Validate (ASR) → Trim silences → Add realism → Mix music in DAW → Master with FFmpeg
+```
+
+### write_script.py (source material → dialogue script)
+
+6-pass LLM pipeline: Extract → Draft → Director → Review (3 perspectives) → Revise.
+Ingests text/markdown files, URLs (trafilatura), and PDFs (pymupdf).
+
+```bash
+python generator/write_script.py source.txt --cast alex,felix,zara --length 20 --review
+```
+
+Key flags: `--review` (add review+revise passes), `--listener "description"` (target audience for review), `--review-only script.txt` (review existing script), `--extract-only` (stop after brief), `--no-director` (skip polish).
+
+Requires `ANTHROPIC_API_KEY` in environment or `.env`. Optional deps: `pip install trafilatura pymupdf`.
+
+Per-podcast character definitions go in `podcasts/<project>/characters/` — define role, signature phrases, never-does rules, emotional range.
 
 ## Post-Processing Pipeline
 
