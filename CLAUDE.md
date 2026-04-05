@@ -262,6 +262,34 @@ python generator/add_realism.py input.mp3 output.mp3 --seed 42
 python generator/add_realism.py input.mp3 output.mp3 --overlap-chance 0.25 --seed 42
 ```
 
+## Prosody Reference Library (gpu-server)
+
+Emotion-matched reference clips for Qwen/Chatterbox voice cloning. Instead of one neutral ref per voice, the prosody selector picks a ref that matches the script's `[emotion]` tag.
+
+**Voices with prosody refs:** emma, felix, lisa, daan_en, sofie_en
+**Emotions:** excited, calm, emphatic, contemplative, urgent
+**Location:** `~/voice_refs/prosody_refs/` on gpu-server
+**Manifest:** `~/voice_refs/prosody_refs/prosody_manifest.json`
+
+```python
+# On gpu-server — use in any Chatterbox/Qwen generation workflow
+from prosody_selector import ProsodySelector
+selector = ProsodySelector("/home/hcl/voice_refs/prosody_refs/prosody_manifest.json")
+
+# Maps script emotions to the closest prosody ref
+ref = selector.select("emma", "excited")     # → emma_excited.wav
+ref = selector.select("emma", "fascinated")  # → emma_excited.wav (mapped)
+ref = selector.select("emma", "thoughtful")  # → emma_contemplative.wav (mapped)
+
+# For Qwen (needs ref text too)
+ref_path, ref_text = selector.select_with_text("emma", "excited")
+
+# Generate with matched ref
+wav = model.generate(text, audio_prompt_path=ref)
+```
+
+The EMOTION_MAP in `prosody_selector.py` maps all common script emotion tags (warm, curious, building, skeptical, etc.) to the 5 prosody categories. Unknown emotions fall back to `calm`.
+
 ## Workflow
 
 - **English podcasts (local)**: Qwen3-TTS or Chatterbox on gpu-server (use per-voice recommendation table above)

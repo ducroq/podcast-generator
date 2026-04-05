@@ -27,11 +27,25 @@ ssh gpu-server  # Tailscale, user: hcl, RTX 4080 16GB
 ## Voice References
 
 ```bash
-ls ~/voice_refs/          # Master voice refs (synced from local)
-ls ~/voice_refs/qwen_refs/ # ElevenLabs-generated refs with known transcripts
+ls ~/voice_refs/              # Master voice refs (synced from local)
+ls ~/voice_refs/qwen_refs/    # ElevenLabs-generated refs with known transcripts
+ls ~/voice_refs/prosody_refs/ # Emotion-variant refs (excited, calm, emphatic, contemplative, urgent)
 ```
 
 Sync new refs: `scp voices/*.mp3 gpu-server:~/voice_refs/`
+
+### Prosody refs (for Chatterbox/Qwen emotion matching)
+
+5 emotion variants for: emma, felix, lisa, daan_en, sofie_en. Use `prosody_selector.py` to pick the right ref per `[emotion]` tag:
+
+```python
+from prosody_selector import ProsodySelector
+selector = ProsodySelector("/home/hcl/voice_refs/prosody_refs/prosody_manifest.json")
+ref = selector.select("emma", "excited")  # → emma_excited.wav
+wav = model.generate(text, audio_prompt_path=ref)
+```
+
+To add a new voice: generate 5 clips (one per emotion) with Chatterbox, add to `prosody_manifest.json`.
 
 ## Validating TTS Output
 
