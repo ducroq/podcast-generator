@@ -36,6 +36,7 @@ generator/chatterbox/           → English-only TTS (free, requires GPU)
 generator/tada/                 → TADA TTS (archived — env and directory removed)
 generator/whisper/              → Whisper STT (transcription)
 generator/write_script.py        → LLM script generator (source → extract → draft → director → review → revise)
+generator/mix_episode.py         → Episode mixer (LUFS leveling, intro/outro, music bed ducking, mastering)
 generator/audio_utils.py        → Shared ffmpeg helpers (detect_silences, get_duration, get_sample_rate)
 generator/quality_checks.py     → Optional quality checks (UTMOS MOS, speaker similarity, language ID)
 generator/validate_tts.py       → Validation pipeline: ASR + quality checks → validation.json
@@ -73,8 +74,10 @@ python generator/trim_silences.py input.mp3 output.mp3
 python generator/validate_tts.py . --manifest manifest.json --language en --engine qwen
 python generator/validate_tts.py . --manifest manifest.json --revalidate-flagged  # only re-check failures
 
-# Master (after mixing, always last)
-ffmpeg -i mix.mp3 -af "loudnorm=I=-16:TP=-1.5:LRA=11" -codec:a libmp3lame -b:a 192k final.mp3
+# Mix episode (replaces manual DAW step — intro, music bed, leveling, mastering)
+python generator/mix_episode.py output/ep01/ -o episode.mp3 --level
+python generator/mix_episode.py output/ep01/ -o episode.mp3 --intro intro.mp3 --outro outro.mp3 --music-bed music.mp3
+python generator/mix_episode.py output/ep01/ --dry-run  # preview without processing
 ```
 
 ## Quality Checks (on gpu-server)
@@ -94,10 +97,10 @@ Results appear in `validation.json` under the `quality` field per entry.
 ## Testing
 
 ```bash
-python -m pytest tests/ -v  # 153 tests, ~8 seconds, no GPU needed
+python -m pytest tests/ -v  # 181 tests, ~7 seconds, no GPU needed
 ```
 
-Covers: audio_utils, voice_settings, hallucination detection, validation reports, add_realism filter graphs (end-to-end ffmpeg), trim_silences, full pipeline chain, write_script (ingestion, LLM passes, review, CLI).
+Covers: audio_utils, voice_settings, hallucination detection, validation reports, add_realism filter graphs (end-to-end ffmpeg), trim_silences, full pipeline chain, write_script (ingestion, LLM passes, review, CLI), mix_episode (LUFS, crossfade, ducking, mastering).
 
 ## Voice Library (100% Synthetic, 30 voices)
 
@@ -200,7 +203,7 @@ Use different engines for different voices based on blind test results:
 ## Full Pipeline
 
 ```
-Write script → Generate audio → Validate (ASR) → Trim silences → Add realism → Mix music in DAW → Master with FFmpeg
+Write script → Generate audio → Validate (ASR) → Trim silences → Add realism → Mix episode → Done
 ```
 
 ### write_script.py (source material → dialogue script)
@@ -221,7 +224,7 @@ Per-podcast character definitions go in `podcasts/<project>/characters/` — def
 ## Post-Processing Pipeline
 
 ```
-Generate → Validate (ASR) → Trim silences → Add realism → Mix music in DAW → Master with FFmpeg
+Generate → Validate (ASR) → Trim silences → Add realism → Mix episode (level + intro/outro + music bed + master)
 ```
 
 Validation runs automatically after generation. Each output directory gets a `validation.json` with per-line ASR results. Flagged lines should be re-generated before proceeding. Use `--revalidate-flagged` to only re-check previously failed lines.
