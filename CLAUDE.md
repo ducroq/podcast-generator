@@ -43,13 +43,14 @@ generator/validate_tts.py       → Validation pipeline: ASR + quality checks �
 generator/_transcribe_worker.py → Whisper subprocess worker (avoids code injection)
 generator/add_realism.py        → Post-processing: overlaps, fillers, breaths, backchannels, jitter, room tone
 generator/master.py             → Pedalboard mastering chain (EQ, compression, gate, limiter, LUFS)
+generator/prosody_selector.py   → Emotion-to-ref mapping for Qwen/Chatterbox voice cloning
 generator/publish.py            → Publish pipeline: chapters, transcript, show notes
 generator/trim_silences.py      → Silence trimming (loudnorm OFF by default)
 generator/asr_*.py              → ASR comparison scripts (Whisper vs Qwen3-ASR)
 generator/qwen_bootstrap_refs.py → Bootstrap matched refs for Qwen3-TTS
 voices/                         → Master voice library (voices.json + designs/ + *.mp3)
 podcasts/                       → Per-podcast projects (scripts + generated audio)
-tests/                          → Test suite (270 tests, ~10s, no GPU needed)
+tests/                          → Test suite (284 tests, ~10s, no GPU needed)
 docs/                           → Methodology guides
 ```
 
@@ -110,7 +111,7 @@ Results appear in `validation.json` under the `quality` field per entry.
 ## Testing
 
 ```bash
-python -m pytest tests/ -v  # 270 tests, ~10 seconds, no GPU needed
+python -m pytest tests/ -v  # 284 tests, ~10 seconds, no GPU needed
 ```
 
 Covers: audio_utils, voice_settings, hallucination detection, validation reports, add_realism (filter graphs, breaths, backchannels), trim_silences, full pipeline chain, write_script (ingestion, LLM passes, review, CLI), mix_episode (LUFS, crossfade, ducking, mastering), master (Pedalboard DSP chain), publish (chapters, SRT transcript, show notes).
