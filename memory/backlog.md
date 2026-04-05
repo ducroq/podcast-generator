@@ -27,7 +27,7 @@
 - Generation script ready: `output/generate_mondriaan_de_qwen.py`
 
 ## Script Generation Pipeline [RESOLVED]
-- Implemented `generator/write_script.py` — 6-pass LLM pipeline (extract → draft → director → review → revise)
+- Implemented `generator/write_script.py` — 7-pass LLM pipeline (extract → draft → director → pronunciation → review → revise)
 - Review pass: 3 parallel perspectives (source fidelity, target listener, narrative design)
 - First episode produced: `podcasts/it-is-both/script_ep01_the_formula.txt` (Alex/Felix/Zara, ~14 min, 10/12 narrative design)
 - Character definitions: `podcasts/it-is-both/characters/` with signature phrases and never-does rules
@@ -49,3 +49,25 @@
 - Evaluated 2026-04-04: MOS 3.13 (voice cloned) vs our 4.3-4.5 — not competitive
 - User confirmed: "really terrible" compared to Chatterbox/Qwen/ElevenLabs
 - Removed from gpu-server. Issue #4 closed.
+
+## Publish Pipeline (2026-04-05) [RESOLVED]
+- publish.py: chapters.json (Podcasting 2.0), transcript.srt (speaker-labeled), show_notes.md
+- Timestamps from cumulative section audio durations, proportional word-count per line
+- Issues closed: #19 (publish), #23 (spectral matching — not needed)
+- Tests: 218 → 270
+
+## Emotional Pacing Framework (2026-04-05) [RESOLVED]
+- NARRATIVE_DESIGN.md: tension mapping, breathing patterns, anticipation beats, peak-end rule
+- Quality checklist reorganized into pacing/dialogue/content categories
+- Issue #21 closed.
+
+## LLM Pronunciation Pass (2026-04-05) [RESOLVED]
+- write_script.py pass 4: replaces foreign proper nouns with phonetic respellings for TTS
+- Always-on, skip with --no-pronunciation
+- Driven by ovr.news international content needs
+- Issue #12 closed (reframed from MFA to LLM approach).
+
+## Prosody Reference Library
+- Issue #20 still open — needs gpu-server session to generate emotion-tagged ref clips
+- Plan: ElevenLabs generates emotion variants per voice → SCP to gpu-server → Qwen/Chatterbox use as refs
+- Blocked by Ollama holding GPU VRAM
