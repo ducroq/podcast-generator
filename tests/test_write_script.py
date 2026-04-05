@@ -18,6 +18,7 @@ from generator.write_script import (
     pass_extract,
     pass_draft,
     pass_director,
+    pass_pronunciation,
     pass_review,
     pass_revise,
     format_review_summary,
@@ -27,6 +28,7 @@ from generator.write_script import (
     EXTRACT_SYSTEM,
     DRAFT_SYSTEM,
     DIRECTOR_SYSTEM,
+    PRONUNCIATION_SYSTEM,
     REVIEW_FIDELITY_SYSTEM,
     REVIEW_LISTENER_SYSTEM,
     REVIEW_NARRATIVE_SYSTEM,
@@ -259,6 +261,55 @@ class TestPassDirector:
 
 
 # ---------------------------------------------------------------------------
+# Pronunciation pass
+# ---------------------------------------------------------------------------
+
+class TestPassPronunciation:
+    def test_returns_script(self):
+        fixed = "Daan: [warm] Today we discuss Shee Jin-ping's latest move."
+        client = make_mock_client(fixed)
+        result = pass_pronunciation(client, "claude-sonnet-4-6",
+                                   "Daan: [warm] Today we discuss Xi Jinping's latest move.")
+        assert "Shee Jin-ping" in result
+
+    def test_lang_included_in_prompt(self):
+        client = make_mock_client("Daan: [warm] Hello")
+        pass_pronunciation(client, "claude-sonnet-4-6", "Daan: [warm] Hello", lang="nl")
+        call_args = client.messages.create.call_args
+        user_content = call_args.kwargs["messages"][0]["content"]
+        assert "Dutch" in user_content
+
+    def test_english_default_lang(self):
+        client = make_mock_client("Lisa: [curious] Hello")
+        pass_pronunciation(client, "claude-sonnet-4-6", "Lisa: [curious] Hello")
+        call_args = client.messages.create.call_args
+        user_content = call_args.kwargs["messages"][0]["content"]
+        assert "English" in user_content
+
+    def test_preserves_format(self):
+        """The pronunciation pass should not alter the line format."""
+        script = "Sofie: [curious] What about Volodymyr Zelenskyy?"
+        fixed = "Sofie: [curious] What about Vo-lo-DEE-mir Ze-LEN-skee?"
+        client = make_mock_client(fixed)
+        result = pass_pronunciation(client, "claude-sonnet-4-6", script)
+        assert result.startswith("Sofie: [curious]")
+
+
+class TestPronunciationSystem:
+    def test_mentions_phonetic(self):
+        assert "phonetic" in PRONUNCIATION_SYSTEM.lower()
+
+    def test_mentions_tts(self):
+        assert "TTS" in PRONUNCIATION_SYSTEM
+
+    def test_mentions_foreign(self):
+        assert "foreign" in PRONUNCIATION_SYSTEM.lower()
+
+    def test_mentions_format_preservation(self):
+        assert "Speaker: [emotion]" in PRONUNCIATION_SYSTEM
+
+
+# ---------------------------------------------------------------------------
 # CLI argument parsing
 # ---------------------------------------------------------------------------
 
@@ -313,6 +364,16 @@ class TestCLI:
         args = parser.parse_args(["source.txt", "--cast", "a,b",
                                    "--review-only", "existing_script.txt"])
         assert args.review_only == "existing_script.txt"
+
+    def test_no_pronunciation_flag(self):
+        parser = build_parser()
+        args = parser.parse_args(["source.txt", "--cast", "a,b", "--no-pronunciation"])
+        assert args.no_pronunciation is True
+
+    def test_pronunciation_on_by_default(self):
+        parser = build_parser()
+        args = parser.parse_args(["source.txt", "--cast", "a,b"])
+        assert args.no_pronunciation is False
 
 
 # ---------------------------------------------------------------------------

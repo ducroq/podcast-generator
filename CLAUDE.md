@@ -49,7 +49,7 @@ generator/asr_*.py              → ASR comparison scripts (Whisper vs Qwen3-ASR
 generator/qwen_bootstrap_refs.py → Bootstrap matched refs for Qwen3-TTS
 voices/                         → Master voice library (voices.json + designs/ + *.mp3)
 podcasts/                       → Per-podcast projects (scripts + generated audio)
-tests/                          → Test suite (254 tests, ~9s, no GPU needed)
+tests/                          → Test suite (264 tests, ~10s, no GPU needed)
 docs/                           → Methodology guides
 ```
 
@@ -110,7 +110,7 @@ Results appear in `validation.json` under the `quality` field per entry.
 ## Testing
 
 ```bash
-python -m pytest tests/ -v  # 254 tests, ~9 seconds, no GPU needed
+python -m pytest tests/ -v  # 264 tests, ~10 seconds, no GPU needed
 ```
 
 Covers: audio_utils, voice_settings, hallucination detection, validation reports, add_realism (filter graphs, breaths, backchannels), trim_silences, full pipeline chain, write_script (ingestion, LLM passes, review, CLI), mix_episode (LUFS, crossfade, ducking, mastering), master (Pedalboard DSP chain), publish (chapters, SRT transcript, show notes).
@@ -221,14 +221,14 @@ Write script → Generate audio → Validate (ASR) → Trim silences → Add rea
 
 ### write_script.py (source material → dialogue script)
 
-6-pass LLM pipeline: Extract → Draft → Director → Review (3 perspectives) → Revise.
+7-pass LLM pipeline: Extract → Draft → Director → Pronunciation → Review (3 perspectives) → Revise.
 Ingests text/markdown files, URLs (trafilatura), and PDFs (pymupdf).
 
 ```bash
 python generator/write_script.py source.txt --cast alex,felix,zara --length 20 --review
 ```
 
-Key flags: `--review` (add review+revise passes), `--listener "description"` (target audience for review), `--review-only script.txt` (review existing script), `--extract-only` (stop after brief), `--no-director` (skip polish).
+Key flags: `--review` (add review+revise passes), `--listener "description"` (target audience for review), `--review-only script.txt` (review existing script), `--extract-only` (stop after brief), `--no-director` (skip polish), `--no-pronunciation` (skip phonetic respellings).
 
 Requires `ANTHROPIC_API_KEY` in environment or `.env`. Optional deps: `pip install trafilatura pymupdf`.
 

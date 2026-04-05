@@ -2,10 +2,11 @@
 """
 Script generator: sources → podcast dialogue script.
 
-Uses a 3-pass LLM pipeline:
+Uses a 4-pass LLM pipeline:
   1. Extract key facts, hooks, and narrative angles from sources
   2. Draft a dialogue script following NARRATIVE_DESIGN.md rules
   3. Dialogue director pass: punch up, fix pacing, validate format
+  4. Pronunciation pass: replace foreign proper nouns with phonetic respellings for TTS
 
 Usage:
     python generator/write_script.py sources/article.txt --cast lisa,marc,sven
@@ -318,6 +319,54 @@ def pass_director(client: anthropic.Anthropic, model: str, draft: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Pass 3.5: Pronunciation (phonetic respellings for TTS)
+# ---------------------------------------------------------------------------
+
+PRONUNCIATION_SYSTEM = """\
+You are a pronunciation specialist preparing podcast scripts for TTS \
+(text-to-speech) engines. Your job: find foreign proper nouns, place names, \
+and terms that a TTS engine will likely mispronounce, and replace them with \
+phonetic respellings that guide the TTS toward correct pronunciation.
+
+RULES:
+1. Replace foreign names with phonetic respellings throughout the script. \
+Use intuitive English-style spelling: "Zelenskyy" → "Zelenskee", \
+"Xi Jinping" → "Shee Jin-ping", "Bundesverfassungsgericht" → "Bun-des-fer-FAH-sungs-ge-rikht".
+2. Use hyphens to separate syllables and CAPS for stressed syllables when \
+the stress pattern is non-obvious. Keep it readable, not IPA.
+3. Do NOT respell names that English TTS handles well (Paris, Berlin, Tokyo, \
+Einstein, Mozart). Only respell names that TTS engines commonly butcher.
+4. Do NOT respell names that match the script language. A Dutch name in a \
+Dutch script is fine. Only respell names from OTHER languages.
+5. For repeated names, use the respelling consistently throughout.
+6. Preserve the EXACT line format: Speaker: [emotion] text. \
+Do not change dialogue content, emotions, structure, or meaning — ONLY \
+fix pronunciation of foreign terms.
+7. When uncertain, prefer the most widely-used English approximation.
+8. Common patterns that need respelling: Chinese names (tonal languages), \
+Arabic/Hebrew names, Eastern European names, African names, South/Southeast \
+Asian names, German compound words, French silent letters.
+
+OUTPUT: Return the full script with pronunciation fixes applied. \
+If no fixes are needed, return the script unchanged. No commentary."""
+
+
+def pass_pronunciation(client: anthropic.Anthropic, model: str, script: str,
+                       lang: str = "en") -> str:
+    """Pass 3.5: Replace foreign proper nouns with phonetic respellings for TTS."""
+    lang_map = {"nl": "Dutch", "de": "German", "fr": "French", "es": "Spanish",
+                "en": "English"}
+    lang_name = lang_map.get(lang, lang)
+
+    user_msg = (
+        f"The script language is {lang_name}. "
+        f"Fix pronunciation of foreign names (from other languages) for TTS.\n\n"
+        f"SCRIPT:\n{script}"
+    )
+    return call_llm(client, model, PRONUNCIATION_SYSTEM, user_msg, max_tokens=16384)
+
+
+# ---------------------------------------------------------------------------
 # Pass 4: Review (three parallel perspectives)
 # ---------------------------------------------------------------------------
 
@@ -578,6 +627,8 @@ def build_parser() -> argparse.ArgumentParser:
                     help="Stop after extraction pass and print the brief as JSON")
     p.add_argument("--no-director", action="store_true",
                     help="Skip the dialogue director pass (faster, rougher output)")
+    p.add_argument("--no-pronunciation", action="store_true",
+                    help="Skip the pronunciation pass (phonetic respellings for foreign names)")
     p.add_argument("--review", action="store_true",
                     help="Run review + revise passes after director (adds 3 LLM calls)")
     p.add_argument("--listener",
@@ -641,8 +692,10 @@ def main(argv: list[str] | None = None) -> None:
         source_text = source_text[:max_chars]
 
     # Determine total passes
-    total_passes = 3  # extract + draft + director
+    total_passes = 4  # extract + draft + director + pronunciation
     if args.no_director:
+        total_passes -= 1
+    if args.no_pronunciation:
         total_passes -= 1
     if args.review:
         total_passes += 2  # review + potential revise
@@ -677,6 +730,16 @@ def main(argv: list[str] | None = None) -> None:
         pass_num += 1
         print(f"\nPass {pass_num}/{total_passes}: Dialogue director polish...")
         final = pass_director(client, args.model, draft)
+        final_lines = [l for l in final.splitlines() if l.strip()]
+        print(f"  {len(final_lines)} dialogue lines, ~{len(final.split())} words")
+
+    # --- Pass 3.5: Pronunciation ---
+    if args.no_pronunciation:
+        print("\nSkipping pronunciation pass (--no-pronunciation)")
+    else:
+        pass_num += 1
+        print(f"\nPass {pass_num}/{total_passes}: Pronunciation — phonetic respellings for foreign names...")
+        final = pass_pronunciation(client, args.model, final, args.lang)
         final_lines = [l for l in final.splitlines() if l.strip()]
         print(f"  {len(final_lines)} dialogue lines, ~{len(final.split())} words")
 
