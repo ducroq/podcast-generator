@@ -287,12 +287,27 @@ class TestPassPronunciation:
         assert "English" in user_content
 
     def test_preserves_format(self):
-        """The pronunciation pass should not alter the line format."""
+        """Mock returns expected format — verifies pass_pronunciation passes it through."""
         script = "Sofie: [curious] What about Volodymyr Zelenskyy?"
         fixed = "Sofie: [curious] What about Vo-lo-DEE-mir Ze-LEN-skee?"
         client = make_mock_client(fixed)
         result = pass_pronunciation(client, "claude-sonnet-4-6", script)
         assert result.startswith("Sofie: [curious]")
+
+    def test_unknown_lang_fallback(self):
+        """Unknown lang codes should pass through as-is without error."""
+        client = make_mock_client("Daan: [warm] Hello")
+        pass_pronunciation(client, "claude-sonnet-4-6", "Daan: [warm] Hello", lang="ja")
+        call_args = client.messages.create.call_args
+        user_content = call_args.kwargs["messages"][0]["content"]
+        assert "ja" in user_content
+
+    def test_strips_markdown_fences(self):
+        """Model wrapping output in fences should be handled."""
+        script = "Lisa: [curious] Hello"
+        client = make_mock_client(f"```\n{script}\n```")
+        result = pass_pronunciation(client, "claude-sonnet-4-6", script)
+        assert result == script
 
 
 class TestPronunciationSystem:

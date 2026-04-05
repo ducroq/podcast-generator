@@ -49,7 +49,7 @@ generator/asr_*.py              → ASR comparison scripts (Whisper vs Qwen3-ASR
 generator/qwen_bootstrap_refs.py → Bootstrap matched refs for Qwen3-TTS
 voices/                         → Master voice library (voices.json + designs/ + *.mp3)
 podcasts/                       → Per-podcast projects (scripts + generated audio)
-tests/                          → Test suite (264 tests, ~10s, no GPU needed)
+tests/                          → Test suite (270 tests, ~10s, no GPU needed)
 docs/                           → Methodology guides
 ```
 
@@ -110,7 +110,7 @@ Results appear in `validation.json` under the `quality` field per entry.
 ## Testing
 
 ```bash
-python -m pytest tests/ -v  # 264 tests, ~10 seconds, no GPU needed
+python -m pytest tests/ -v  # 270 tests, ~10 seconds, no GPU needed
 ```
 
 Covers: audio_utils, voice_settings, hallucination detection, validation reports, add_realism (filter graphs, breaths, backchannels), trim_silences, full pipeline chain, write_script (ingestion, LLM passes, review, CLI), mix_episode (LUFS, crossfade, ducking, mastering), master (Pedalboard DSP chain), publish (chapters, SRT transcript, show notes).

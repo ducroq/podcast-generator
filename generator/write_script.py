@@ -363,7 +363,14 @@ def pass_pronunciation(client: anthropic.Anthropic, model: str, script: str,
         f"Fix pronunciation of foreign names (from other languages) for TTS.\n\n"
         f"SCRIPT:\n{script}"
     )
-    return call_llm(client, model, PRONUNCIATION_SYSTEM, user_msg, max_tokens=16384)
+    result = call_llm(client, model, PRONUNCIATION_SYSTEM, user_msg, max_tokens=16384)
+    # Strip markdown fences if model wraps output
+    result = result.strip()
+    if result.startswith("```"):
+        result = result.split("\n", 1)[1]
+    if result.endswith("```"):
+        result = result.rsplit("```", 1)[0]
+    return result.strip()
 
 
 # ---------------------------------------------------------------------------

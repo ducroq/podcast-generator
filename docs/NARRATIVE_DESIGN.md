@@ -189,7 +189,7 @@ These techniques work with `text_to_dialogue` as written — no post-production 
 
 ## Emotional Pacing
 
-Monotone emotional register causes listener drop-off within 4 minutes. Engagement data confirms: emotional variety is the strongest predictor of completion rate. Plan the emotional shape of each episode deliberately.
+Monotone emotional register causes listener drop-off quickly. Production experience confirms: emotional variety is the strongest predictor of completion rate. Plan the emotional shape of each episode deliberately.
 
 ### Tension Mapping
 
@@ -218,11 +218,11 @@ Place the emotional peak at ~60-70% of episode length (Segment 3 in the 5-segmen
 
 ### First 60 Seconds
 
-20-35% of listeners decide to stay in the opening minute. The cold open must create an open loop: a paradox, a surprising fact, a scene that raises a question. Never open with credits, introductions, or "welcome to the show." Open with the hook, then introduce.
+A significant share of listeners decide to stay or leave in the opening minute. The cold open must create an open loop: a paradox, a surprising fact, a scene that raises a question. Never open with credits, introductions, or "welcome to the show." Open with the hook, then introduce.
 
 ## Emotional Arcs
 
-Plan emotional arcs per segment, not just content arcs.
+Emotional Pacing (above) handles the macro shape across segments. Emotional arcs handle the micro shape within each segment — the line-by-line progression of emotion tags.
 
 **Discovery arc:** curious → interested → fascinated → impressed
 **Confusion-to-clarity:** confused → hesitant → probing → realizing → excited
@@ -302,6 +302,8 @@ Listeners who can follow up become loyal listeners.
 - [ ] At least one anticipation beat ("What happened next...") every 2-3 minutes
 - [ ] Opening 60 seconds creates an open loop — no introductions before the hook
 - [ ] Closing leaves the listener with a feeling, not just a summary
+- [ ] 2-3 genuine emotional moments per episode
+- [ ] Each segment has a clear emotional arc
 
 ### Dialogue and Character
 
@@ -320,7 +322,5 @@ Listeners who can follow up become loyal listeners.
 - [ ] Opening hooks show the phenomenon, not describe it
 - [ ] Source quotes integrate naturally with setup and payoff
 - [ ] Modern relevance feels organic, not bolted on
-- [ ] 2-3 genuine emotional moments per episode
-- [ ] Each segment has a clear emotional arc
 - [ ] Specific, actionable references (museums, books, search terms)
 - [ ] Works standalone but rewards series listening

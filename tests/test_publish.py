@@ -181,6 +181,16 @@ class TestEstimateLineTimestamps:
         assert entries[0]["start"] == 5.0
         assert entries[0]["end"] == 15.0
 
+    def test_last_entry_clamped_to_section_boundary(self):
+        """Float drift should not cause last entry to miss the section end."""
+        lines = [
+            DialogueLine("A", "one two three", "default"),
+            DialogueLine("B", "four five six seven", "default"),
+            DialogueLine("C", "eight nine", "default"),
+        ]
+        entries = estimate_line_timestamps(lines, section_start=10.0, section_duration=7.0)
+        assert entries[-1]["end"] == 17.0  # exactly section_start + section_duration
+
 
 class TestFormatSrt:
     def test_basic_format(self):
@@ -218,6 +228,15 @@ class TestFormatSrtTime:
 
     def test_hours(self):
         assert _format_srt_time(7200.0) == "02:00:00,000"
+
+    def test_ms_overflow_boundary(self):
+        """ms=1000 must carry over to seconds, not produce ,1000."""
+        result = _format_srt_time(1.9999)
+        assert result == "00:00:02,000"
+
+    def test_near_minute_boundary(self):
+        result = _format_srt_time(59.9995)
+        assert result == "00:01:00,000"
 
 
 # ---------------------------------------------------------------------------
@@ -369,6 +388,31 @@ class TestPublishEndToEnd:
 
         assert result["dry_run"] is True
         assert not output_dir.exists()
+
+    def test_no_sections_script(self, tmp_path):
+        """Script without section headers should still produce output."""
+        # Create one audio file
+        path = tmp_path / "episode_test_1_full.mp3"
+        cmd = [
+            "ffmpeg", "-y", "-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono",
+            "-t", "5", "-codec:a", "libmp3lame", "-b:a", "64k", str(path),
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        assert result.returncode == 0
+
+        script = tmp_path / "no_sections.txt"
+        script.write_text(SCRIPT_NO_SECTIONS, encoding="utf-8")
+        output_dir = tmp_path / "published"
+
+        result = publish(
+            section_dir=tmp_path, script=script, output_dir=output_dir,
+        )
+
+        assert (output_dir / "chapters.json").exists()
+        assert (output_dir / "transcript.srt").exists()
+        # Chapters should have at least 1 entry
+        chapters = json.loads((output_dir / "chapters.json").read_text())
+        assert len(chapters["chapters"]) >= 1
 
     def test_custom_title(self, section_audio_files, sample_script, tmp_path):
         output_dir = tmp_path / "published"

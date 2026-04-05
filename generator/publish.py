@@ -24,6 +24,7 @@ import argparse
 import json
 import re
 import sys
+import textwrap
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -35,7 +36,8 @@ from src.dialogue_parser import DialogueParser
 
 
 # ---------------------------------------------------------------------------
-# Section parsing (duplicated from generate_episode.py to avoid deep import)
+# Section parsing (duplicated from generate_episode.py:find_sections to avoid deep import)
+# Keep in sync with generator/elevenlabs/generate_episode.py line ~40
 # ---------------------------------------------------------------------------
 
 SECTION_PATTERN = re.compile(r'={20,}\s*\n([^\n=]+)\s*\n={20,}')
@@ -127,6 +129,9 @@ def estimate_line_timestamps(
             "text": line.text,
         })
         cursor += duration
+    # Clamp last entry to exact section boundary to avoid float drift
+    if entries:
+        entries[-1]["end"] = round(section_start + section_duration, 3)
     return entries
 
 
@@ -154,10 +159,10 @@ def build_transcript(
 
 def _format_srt_time(seconds: float) -> str:
     """Format seconds as SRT timestamp: HH:MM:SS,mmm."""
-    h = int(seconds // 3600)
-    m = int((seconds % 3600) // 60)
-    s = int(seconds % 60)
-    ms = int(round((seconds % 1) * 1000))
+    total_ms = round(seconds * 1000)
+    h, remainder = divmod(total_ms, 3_600_000)
+    m, remainder = divmod(remainder, 60_000)
+    s, ms = divmod(remainder, 1000)
     return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
 
 
@@ -206,7 +211,7 @@ def build_show_notes(
         for name in section_names:
             section_text = extract_section_text(script_content, name)
             lines = parser.parse_text(section_text)
-            hint = f" -- {lines[0].text[:80]}" if lines else ""
+            hint = f" -- {textwrap.shorten(lines[0].text, 80, placeholder='...')}" if lines else ""
             parts.append(f"- **{name}**{hint}")
         parts.append("")
 
