@@ -43,12 +43,13 @@ generator/validate_tts.py       → Validation pipeline: ASR + quality checks �
 generator/_transcribe_worker.py → Whisper subprocess worker (avoids code injection)
 generator/add_realism.py        → Post-processing: overlaps, fillers, breaths, backchannels, jitter, room tone
 generator/master.py             → Pedalboard mastering chain (EQ, compression, gate, limiter, LUFS)
+generator/publish.py            → Publish pipeline: chapters, transcript, show notes
 generator/trim_silences.py      → Silence trimming (loudnorm OFF by default)
 generator/asr_*.py              → ASR comparison scripts (Whisper vs Qwen3-ASR)
 generator/qwen_bootstrap_refs.py → Bootstrap matched refs for Qwen3-TTS
 voices/                         → Master voice library (voices.json + designs/ + *.mp3)
 podcasts/                       → Per-podcast projects (scripts + generated audio)
-tests/                          → Test suite (218 tests, ~8s, no GPU needed)
+tests/                          → Test suite (254 tests, ~9s, no GPU needed)
 docs/                           → Methodology guides
 ```
 
@@ -85,6 +86,11 @@ python generator/add_realism.py input.mp3 output.mp3 --script script.txt --seed 
 # Master with Pedalboard (optional alternative to ffmpeg loudnorm)
 python generator/master.py input.mp3 -o mastered.mp3
 python generator/master.py input.mp3 --analyze  # measure loudness only
+
+# Publish (chapters, transcript, show notes)
+python generator/publish.py output/ep01/ --script script.txt
+python generator/publish.py output/ep01/ --script script.txt --intro intro.mp3 -o published/
+python generator/publish.py output/ep01/ --script script.txt --dry-run
 ```
 
 ## Quality Checks (on gpu-server)
@@ -104,10 +110,10 @@ Results appear in `validation.json` under the `quality` field per entry.
 ## Testing
 
 ```bash
-python -m pytest tests/ -v  # 218 tests, ~8 seconds, no GPU needed
+python -m pytest tests/ -v  # 254 tests, ~9 seconds, no GPU needed
 ```
 
-Covers: audio_utils, voice_settings, hallucination detection, validation reports, add_realism (filter graphs, breaths, backchannels), trim_silences, full pipeline chain, write_script (ingestion, LLM passes, review, CLI), mix_episode (LUFS, crossfade, ducking, mastering), master (Pedalboard DSP chain).
+Covers: audio_utils, voice_settings, hallucination detection, validation reports, add_realism (filter graphs, breaths, backchannels), trim_silences, full pipeline chain, write_script (ingestion, LLM passes, review, CLI), mix_episode (LUFS, crossfade, ducking, mastering), master (Pedalboard DSP chain), publish (chapters, SRT transcript, show notes).
 
 ## Voice Library (100% Synthetic, 30 voices)
 
@@ -210,7 +216,7 @@ Use different engines for different voices based on blind test results:
 ## Full Pipeline
 
 ```
-Write script → Generate audio → Validate (ASR) → Trim silences → Add realism → Mix episode → Done
+Write script → Generate audio → Validate (ASR) → Trim silences → Add realism → Mix episode → Publish → Done
 ```
 
 ### write_script.py (source material → dialogue script)
@@ -231,7 +237,7 @@ Per-podcast character definitions go in `podcasts/<project>/characters/` — def
 ## Post-Processing Pipeline
 
 ```
-Generate → Validate (ASR) → Trim silences → Add realism → Mix episode (level + intro/outro + music bed + master)
+Generate → Validate (ASR) → Trim silences → Add realism → Mix episode (level + intro/outro + music bed + master) → Publish (chapters + transcript + show notes)
 ```
 
 Validation runs automatically after generation. Each output directory gets a `validation.json` with per-line ASR results. Flagged lines should be re-generated before proceeding. Use `--revalidate-flagged` to only re-check previously failed lines.
