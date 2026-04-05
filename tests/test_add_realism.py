@@ -3,7 +3,8 @@
 import random
 
 from add_realism import (
-    split_into_turns, plan_realism, build_filter_complex, _silence_pad, parse_range,
+    split_into_turns, plan_realism, build_filter_complex, _silence_pad,
+    _breath_filter, parse_range,
 )
 
 
@@ -256,6 +257,93 @@ class TestBuildFilterComplex:
         assert "adelay" not in combined
         assert "filler" not in combined
         assert extra_inputs == []
+
+
+class TestBreathFilter:
+    def test_inhale_produces_two_filters(self):
+        random.seed(42)
+        filters = _breath_filter(44100, 'inhale', 'breath0')
+        assert len(filters) == 2
+        assert 'anoisesrc=color=pink' in filters[0]
+        assert 'bandpass' in filters[1]
+        assert 'afade' in filters[1]
+        assert '[breath0]' in filters[1]
+
+    def test_exhale_different_from_inhale(self):
+        random.seed(42)
+        inhale = _breath_filter(44100, 'inhale', 'bi')
+        random.seed(42)
+        exhale = _breath_filter(44100, 'exhale', 'be')
+        # Different frequency bands
+        assert inhale[1] != exhale[1]
+
+
+class TestPlanRealismBreaths:
+    def test_breath_inserted_between_turns(self):
+        turns = [
+            {'start': 0, 'end': 2, 'duration': 2.0, 'gap_after': 0.5},
+            {'start': 2.5, 'end': 5, 'duration': 2.5, 'gap_after': 0.5},
+            {'start': 5.5, 'end': 7, 'duration': 1.5, 'gap_after': 0.0},
+        ]
+        random.seed(42)
+        actions = plan_realism(
+            turns, overlap_chance=0, overlap_range_ms=(300, 800),
+            jitter_range_ms=(50, 150), filler_chance=0, fillers_available=[],
+            breath_chance=1.0,  # force all breaths
+        )
+        breaths = [a for a in actions if a['breath']]
+        assert len(breaths) >= 1
+        # Should be 'inhale' or 'exhale' (synthetic)
+        assert all(b['breath'] in ('inhale', 'exhale') for b in breaths)
+
+    def test_no_breath_when_chance_zero(self):
+        turns = [
+            {'start': 0, 'end': 2, 'duration': 2.0, 'gap_after': 0.5},
+            {'start': 2.5, 'end': 5, 'duration': 2.5, 'gap_after': 0.0},
+        ]
+        actions = plan_realism(
+            turns, overlap_chance=0, overlap_range_ms=(300, 800),
+            jitter_range_ms=(50, 150), filler_chance=0, fillers_available=[],
+            breath_chance=0.0,
+        )
+        assert all(a['breath'] is None for a in actions)
+
+    def test_no_breath_on_overlap(self):
+        turns = [
+            {'start': 0, 'end': 2, 'duration': 2.0, 'gap_after': 0.5},
+            {'start': 2.5, 'end': 5, 'duration': 2.5, 'gap_after': 0.0},
+        ]
+        random.seed(42)
+        actions = plan_realism(
+            turns, overlap_chance=1.0, overlap_range_ms=(300, 800),
+            jitter_range_ms=(50, 150), filler_chance=0, fillers_available=[],
+            breath_chance=1.0,
+        )
+        # Overlapped turns should not get breaths
+        overlapped = [a for a in actions if a['action'] == 'overlap']
+        assert all(a['breath'] is None for a in overlapped)
+
+
+class TestBuildFilterComplexBreaths:
+    def test_breath_action_produces_filters(self):
+        turns = [
+            {'start': 0, 'end': 2, 'duration': 2.0, 'gap_after': 0.5},
+            {'start': 2.5, 'end': 5, 'duration': 2.5, 'gap_after': 0.0},
+        ]
+        actions = [
+            {'turn_idx': 0, 'action': 'normal', 'overlap_ms': 0,
+             'jitter_ms': 0, 'filler_file': None, 'breath': 'inhale'},
+            {'turn_idx': 1, 'action': 'normal', 'overlap_ms': 0,
+             'jitter_ms': 0, 'filler_file': None, 'breath': None},
+        ]
+        random.seed(42)
+        filters, out_label, extra_inputs = build_filter_complex(
+            turns, actions, 5.0, 44100, no_room_tone=True
+        )
+        filter_str = ';'.join(filters)
+        assert 'anoisesrc=color=pink' in filter_str  # synthetic breath
+        assert 'bandpass' in filter_str
+        assert 'bmix' in filter_str  # breath mix label
 
 
 class TestParseRange:

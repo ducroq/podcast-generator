@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Add realism to generated podcast audio: overlapping speech, filler sounds,
-timing jitter, and room tone. Works on any TTS engine output.
+breath insertion, timing jitter, and room tone. Works on any TTS engine output.
 
 Pipeline position: after trim_silences, before final mastering.
 
@@ -62,11 +62,12 @@ def split_into_turns(silences, total_duration):
 
 
 def plan_realism(turns, overlap_chance, overlap_range_ms, jitter_range_ms,
-                 filler_chance, fillers_available, dry_run=False):
+                 filler_chance, fillers_available, breath_chance=0.3,
+                 breaths_available=None, dry_run=False):
     """Decide which realism effects to apply to each turn gap.
 
     Returns list of actions per turn:
-    [{turn_idx, action, overlap_ms, jitter_ms, filler_file}]
+    [{turn_idx, action, overlap_ms, jitter_ms, filler_file, breath}]
     """
     actions = []
 
@@ -77,6 +78,7 @@ def plan_realism(turns, overlap_chance, overlap_range_ms, jitter_range_ms,
             'overlap_ms': 0,
             'jitter_ms': 0,
             'filler_file': None,
+            'breath': None,  # 'inhale', 'exhale', or a file path
         }
 
         if i < len(turns) - 1:  # Not the last turn
@@ -105,6 +107,18 @@ def plan_realism(turns, overlap_chance, overlap_range_ms, jitter_range_ms,
             if turn['duration'] > 3.0 and fillers_available and random.random() < filler_chance:
                 action['filler_file'] = random.choice(fillers_available)
 
+            # Breath: insert between speaker turns
+            # More likely before long turns (>2s) and at gaps >0.3s
+            next_turn = turns[i + 1] if i + 1 < len(turns) else None
+            if (gap > 0.3 and action['action'] != 'overlap'
+                    and random.random() < breath_chance):
+                if breaths_available:
+                    action['breath'] = random.choice(breaths_available)
+                elif next_turn and next_turn['duration'] > 2.0:
+                    action['breath'] = 'inhale'
+                else:
+                    action['breath'] = 'exhale'
+
         actions.append(action)
 
     return actions
@@ -120,6 +134,37 @@ def _silence_pad(sample_rate, duration, label):
     return [
         f'anullsrc=r={sample_rate}:cl=mono[{null_label}]',
         f'[{null_label}]atrim=duration={duration:.6f}[{label}]',
+    ]
+
+
+def _breath_filter(sample_rate, breath_type, label):
+    """Generate a synthetic breath filter (inhale or exhale).
+
+    Uses band-passed pink noise with an amplitude envelope to approximate
+    the spectral and temporal shape of a human breath.
+
+    Inhale: 0.4-0.6s, rising then falling envelope, 800-3500 Hz band
+    Exhale: 0.3-0.5s, sharp attack then decay, 600-2500 Hz band
+    """
+    if breath_type == 'inhale':
+        duration = random.uniform(0.4, 0.6)
+        # Inhale: gradual rise, peaks at ~60%, then drops
+        freq_lo, freq_hi = 800, 3500
+        volume = random.uniform(0.015, 0.025)
+    else:  # exhale
+        duration = random.uniform(0.3, 0.5)
+        # Exhale: sharper attack, lower frequency
+        freq_lo, freq_hi = 600, 2500
+        volume = random.uniform(0.010, 0.020)
+
+    noise_label = f'bnoise_{label}'
+    return [
+        f'anoisesrc=color=pink:sample_rate={sample_rate}:'
+        f'amplitude={volume}:duration={duration:.3f}[{noise_label}]',
+        f'[{noise_label}]bandpass=frequency={int((freq_lo + freq_hi) / 2)}:'
+        f'width_type=h:width={freq_hi - freq_lo},'
+        f'afade=t=in:d={duration * 0.3:.3f},'
+        f'afade=t=out:st={duration * 0.6:.3f}:d={duration * 0.4:.3f}[{label}]',
     ]
 
 
@@ -194,6 +239,19 @@ def build_filter_complex(turns, actions, total_duration, sample_rate,
 
     out_label = 'joined'
 
+    # Breaths: insert synthetic breath sounds between turns
+    # Breaths are placed just before the next turn in the gap
+    breath_segments = []
+    for i, action in enumerate(actions):
+        breath = action.get('breath')
+        if breath and isinstance(breath, str) and breath in ('inhale', 'exhale'):
+            breath_label = f'breath{i}'
+            filters.extend(_breath_filter(sample_rate, action['breath'], breath_label))
+            breath_segments.append((i, breath_label))
+
+    # If we have breaths, mix them at their gap positions after concatenation
+    # We'll mix them after fillers (both use the same post-concat mixing approach)
+
     # Fillers: mix each filler at its planned absolute position
     # Compute absolute timeline positions by replaying overlap/jitter decisions
     timeline_pos = 0.0
@@ -232,6 +290,26 @@ def build_filter_complex(turns, actions, total_duration, sample_rate,
             )
             out_label = mix_label
 
+    # Mix breaths at their gap positions (just before the next turn starts)
+    for turn_idx, breath_label in breath_segments:
+        # Place breath at end of gap, just before next turn
+        if turn_idx + 1 < len(turn_abs_starts):
+            next_start = turn_abs_starts[turn_idx + 1]
+            # Breath ends ~50ms before next turn starts
+            delay_ms = max(0, int((next_start - 0.5) * 1000))
+        else:
+            turn_start = turn_abs_starts[turn_idx]
+            delay_ms = int((turn_start + turns[turn_idx]['duration']) * 1000)
+
+        bmix_label = f'bmix{turn_idx}'
+        filters.append(
+            f'[{breath_label}]adelay={delay_ms}|{delay_ms}[bd{turn_idx}]'
+        )
+        filters.append(
+            f'[{out_label}][bd{turn_idx}]amix=inputs=2:duration=first[{bmix_label}]'
+        )
+        out_label = bmix_label
+
     # Room tone: mix underneath (skip if no_room_tone)
     # Use computed timeline duration (accounts for overlaps/jitter) instead of input duration
     output_duration = timeline_pos if timeline_pos > 0 else total_duration
@@ -267,6 +345,7 @@ def build_filter_complex(turns, actions, total_duration, sample_rate,
 def add_realism(input_path, output_path, overlap_chance=0.25,
                 overlap_range_ms=(300, 800), jitter_range_ms=(50, 150),
                 filler_chance=0.10, fillers_dir=None,
+                breath_chance=0.3, breaths_dir=None,
                 room_tone_path=None, room_tone_vol=0.08,
                 no_room_tone=False, seed=None, dry_run=False):
     """Main pipeline: detect turns, plan effects, render with ffmpeg."""
@@ -300,21 +379,35 @@ def add_realism(input_path, output_path, overlap_chance=0.25,
         if fillers:
             print(f'Filler sounds: {len(fillers)} files from {fillers_dir}')
 
+    # Collect breath files (optional — synthetic breaths used if no files provided)
+    breaths = []
+    if breaths_dir:
+        breaths_path = Path(breaths_dir)
+        breaths = sorted([
+            str(f) for f in breaths_path.glob('*.wav')
+        ] + [
+            str(f) for f in breaths_path.glob('*.mp3')
+        ])
+        if breaths:
+            print(f'Breath sounds: {len(breaths)} files from {breaths_dir}')
+
     # Plan effects
     actions = plan_realism(
         turns, overlap_chance, overlap_range_ms, jitter_range_ms,
-        filler_chance, fillers, dry_run
+        filler_chance, fillers, breath_chance, breaths, dry_run
     )
 
     # Stats
     overlaps = sum(1 for a in actions if a['action'] == 'overlap')
     jitters = sum(1 for a in actions if a['jitter_ms'] != 0)
     filler_inserts = sum(1 for a in actions if a['filler_file'])
+    breath_inserts = sum(1 for a in actions if a['breath'])
 
     print(f'Planned effects:')
     print(f'  Overlaps: {overlaps}/{len(turns)} turns')
     print(f'  Jittered pauses: {jitters}/{len(turns)} turns')
     print(f'  Filler insertions: {filler_inserts}')
+    print(f'  Breath insertions: {breath_inserts}')
     print(f'  Room tone: {"custom" if room_tone_path else "synthetic pink noise" if not no_room_tone else "none"}')
 
     if dry_run:
@@ -328,6 +421,8 @@ def add_realism(input_path, output_path, overlap_chance=0.25,
                 extra += f' jitter={action["jitter_ms"]:+d}ms'
             if action['filler_file']:
                 extra += f' filler={Path(action["filler_file"]).name}'
+            if action['breath']:
+                extra += f' breath={action["breath"]}'
             print(f'  Turn {i}: {turn["start"]:.2f}-{turn["end"]:.2f}s '
                   f'({turn["duration"]:.2f}s) gap={turn["gap_after"]:.3f}s '
                   f'-> {effect}{extra}')
@@ -400,6 +495,12 @@ if __name__ == '__main__':
                         help='Directory with filler audio files')
     parser.add_argument('--filler-chance', type=float, default=0.10,
                         help='Probability of filler during long turns (default: 0.10)')
+    parser.add_argument('--breath-chance', type=float, default=0.3,
+                        help='Probability of breath between turns (default: 0.3)')
+    parser.add_argument('--breaths-dir', type=str, default=None,
+                        help='Directory with breath audio files (uses synthetic if omitted)')
+    parser.add_argument('--no-breaths', action='store_true',
+                        help='Skip breath insertion entirely')
     parser.add_argument('--room-tone', type=str, default=None,
                         help='Room tone audio file to loop underneath')
     parser.add_argument('--room-tone-vol', type=float, default=0.08,
@@ -428,6 +529,8 @@ if __name__ == '__main__':
         jitter_range_ms=parse_range(args.jitter_ms),
         filler_chance=args.filler_chance,
         fillers_dir=args.fillers_dir,
+        breath_chance=0.0 if args.no_breaths else args.breath_chance,
+        breaths_dir=args.breaths_dir,
         room_tone_path=args.room_tone,
         room_tone_vol=args.room_tone_vol,
         no_room_tone=args.no_room_tone,
