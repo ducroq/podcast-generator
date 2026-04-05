@@ -114,7 +114,7 @@ Results appear in `validation.json` under the `quality` field per entry.
 python -m pytest tests/ -v  # 284 tests, ~10 seconds, no GPU needed
 ```
 
-Covers: audio_utils, voice_settings, hallucination detection, validation reports, add_realism (filter graphs, breaths, backchannels), trim_silences, full pipeline chain, write_script (ingestion, LLM passes, review, CLI), mix_episode (LUFS, crossfade, ducking, mastering), master (Pedalboard DSP chain), publish (chapters, SRT transcript, show notes).
+Covers: audio_utils, voice_settings, hallucination detection, validation reports, add_realism (filter graphs, breaths, backchannels), trim_silences, full pipeline chain, write_script (ingestion, LLM passes, pronunciation, review, CLI), mix_episode (LUFS, crossfade, ducking, mastering), master (Pedalboard DSP chain), publish (chapters, SRT transcript, show notes), prosody_selector (emotion mapping, fallback logic).
 
 ## Voice Library (100% Synthetic, 30 voices)
 

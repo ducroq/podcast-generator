@@ -67,7 +67,10 @@
 - Driven by ovr.news international content needs
 - Issue #12 closed (reframed from MFA to LLM approach).
 
-## Prosody Reference Library
-- Issue #20 still open — needs gpu-server session to generate emotion-tagged ref clips
-- Plan: ElevenLabs generates emotion variants per voice → SCP to gpu-server → Qwen/Chatterbox use as refs
-- Blocked by Ollama holding GPU VRAM
+## Prosody Reference Library (2026-04-05) [RESOLVED]
+- 25 Chatterbox-generated prosody refs on gpu-server (5 voices x 5 emotions)
+- Voices: emma, felix, lisa, daan_en, sofie_en
+- Emotions: excited, calm, emphatic, contemplative, urgent
+- prosody_selector.py maps script emotion tags to closest ref
+- A/B tested: 11/12 good on first try, 12/12 after one re-roll
+- Issue #20 closed.

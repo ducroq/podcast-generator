@@ -120,6 +120,11 @@
 **Root cause**: `attack=200ms` is appropriate for music compression but way too slow for speech transients. Speech needs 5-20ms attack.
 **Fix**: Changed to `attack=10ms`, `release=800ms`. Also removed double-attenuation (amix weights on top of sidechaincompress).
 
+### /curate skill blocked by disable-model-invocation [RESOLVED] (2026-04-05)
+**Problem**: `/curate` couldn't be invoked programmatically — returned `disable-model-invocation` error.
+**Root cause**: The `SKILL.md` frontmatter had `disable-model-invocation: true`, inherited from the `agent-ready-projects` template (`templates/curate.md`).
+**Fix**: Changed to `false` in both the project skill and the framework template.
+
 ## Promoted
 
 <!-- Track gotchas that have been promoted to topic files or the memory index.
