@@ -156,6 +156,11 @@ class TestPrompts:
         assert "agreement spiral" in DRAFT_SYSTEM.lower()
         assert "as you know" in DRAFT_SYSTEM.lower()
 
+    def test_draft_system_mentions_show_dont_tell(self):
+        assert "SHOW FIRST" in DRAFT_SYSTEM
+        assert "EARN THE EXPLANATION" in DRAFT_SYSTEM
+        assert "PERSONAL STORIES" in DRAFT_SYSTEM
+
     def test_director_system_mentions_format(self):
         assert "Speaker: [emotion]" in DIRECTOR_SYSTEM
 
@@ -168,6 +173,13 @@ class TestPrompts:
     def test_review_narrative_system_mentions_checklist(self):
         assert "PASS" in REVIEW_NARRATIVE_SYSTEM
         assert "FAIL" in REVIEW_NARRATIVE_SYSTEM
+
+    def test_review_narrative_system_includes_show_dont_tell(self):
+        assert "scene or anecdote" in REVIEW_NARRATIVE_SYSTEM
+        assert "host, not the expert" in REVIEW_NARRATIVE_SYSTEM
+
+    def test_review_listener_system_includes_telling_not_showing(self):
+        assert "TELLING_NOT_SHOWING" in REVIEW_LISTENER_SYSTEM
 
     def test_revise_system_prioritizes_high_severity(self):
         assert "HIGH" in REVISE_SYSTEM

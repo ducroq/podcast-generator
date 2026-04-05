@@ -39,6 +39,64 @@ Segments are deliberately unequal. The short emotional segment (3) acts as a piv
 
 **Word targets:** 15-20 min = ~2500-3000 words. 20-25 min = ~3000-4000 words.
 
+## Show, Don't Tell
+
+The difference between a good podcast and a great one is whether the listener discovers or gets told.
+
+### Show First, Name Second
+
+Before explaining any concept, ground it in a scene, anecdote, or concrete moment the listener recognizes. The listener should feel the phenomenon before anyone labels it.
+
+Bad:
+```
+Expert: [calm] Pattern one is the counter-intuitive hook. Authors say
+"everything you knew is wrong" to grab attention.
+```
+
+Good:
+```
+Host: [curious] My manager handed me Atomic Habits last month. Fourth
+book like that in two years.
+Expert: [warm] Let me guess. Good to Great, Lean Startup, maybe Start with Why?
+Host: [surprised] How did you know?
+```
+
+The listener has now *felt* the formula before anyone calls it "the formula." **The listener's recognition IS the teaching moment.** The expert's job is to name what the listener just experienced, not to explain it from scratch.
+
+### Anecdotes and Micro-Stories
+
+Characters should bring personal stories, not just positions. "I was in a meeting last week where..." or "I bought this book because my boss kept scheduling me for presentations I hated..."
+
+These stories do three things:
+1. Make characters feel like people, not roles
+2. Ground abstractions in specificity
+3. Let the listener recognize their own experience
+
+An example delivered as evidence ("Take Apple, for instance...") is still telling. A character *recounting something that happened to them* is showing.
+
+### Cold Opens / Dramatized Scenes
+
+Consider opening with a short dramatized moment (60-90 seconds) that drops the listener into the phenomenon before the discussion begins. No narrator framing, no context. The listener figures out what they're hearing.
+
+These scenes are the stickiest content in any podcast. They work as standalone social clips and they solve the "expert lectures" problem structurally — the scene already showed what the discussion will explore.
+
+### Earn the Explanation
+
+The host or skeptic should arrive at an insight *before* the expert labels it. When the expert always carries the realization, the format becomes a lecture with audience reactions.
+
+```
+Bad:
+Expert: [passionate] So what's happening is survivorship bias. You only
+hear about the winners.
+
+Good:
+Skeptic: [thoughtful] So you only ever hear from the companies that
+survived the shipwreck. That's why it looks like the method worked.
+Expert: [calm] When maybe the method was incidental.
+```
+
+In Ping-Pong-Plus (Statement → Question → Deepening → Realization), the Realization doesn't always belong to the expert. Sometimes give it to the host. Sometimes let it emerge from the conversation without anyone claiming it.
+
 ## Dialogue Dynamics
 
 ### Ping-Pong-Plus
@@ -216,3 +274,7 @@ A script is ready when:
 - [ ] Each segment has a clear emotional arc
 - [ ] Specific, actionable references (museums, books, search terms)
 - [ ] Works standalone but rewards series listening
+- [ ] Each major concept is grounded in a scene or anecdote before being explained
+- [ ] At least one insight per episode is reached by the host, not the expert
+- [ ] Characters bring personal stories, not just analytical positions
+- [ ] Opening hooks show the phenomenon, not describe it

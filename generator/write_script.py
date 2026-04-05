@@ -183,6 +183,19 @@ STRUCTURE — 5 segments:
 - SEGMENT 4 (application, 3-5 min): Concrete examples, specific references
 - CLOSING (2-3 min): Emotional recap + call to action + next episode teaser
 
+SHOW, DON'T TELL (critical):
+- SHOW FIRST, NAME SECOND: before explaining any concept, ground it in a scene, \
+anecdote, or concrete moment the listener recognizes. The listener should FEEL \
+the phenomenon before anyone labels it.
+- Characters must bring PERSONAL STORIES, not just positions. "I was in a meeting \
+where..." or "I bought this book because..." — not "Take Apple, for instance..."
+- EARN THE EXPLANATION: the host or skeptic should arrive at insights BEFORE the \
+expert labels them. The Realization in Ping-Pong-Plus doesn't always belong to \
+the expert — sometimes the host gets there first, sometimes it emerges from \
+the conversation without anyone claiming it.
+- The opening should SHOW the phenomenon, not describe it. Drop the listener into \
+a recognizable moment.
+
 DIALOGUE DYNAMICS:
 - Ping-Pong-Plus: each exchange escalates (Statement → Question → Deepening → Realization)
 - Vary turn length DRAMATICALLY: mix single-word reactions ("...Forty years.") \
@@ -198,6 +211,8 @@ GUARD RAILS:
 - NO "as you know, Bob" — never have characters explain things they'd both already know
 - NO symmetric turn lengths — if every turn is 1-3 sentences, you've failed
 - NO exposition dumps — break complex ideas across multiple exchanges
+- NO "expert explains, others react" — if the expert is the only one generating \
+insights, you're writing a lecture, not a conversation
 - At least 2-3 genuine emotional moments per episode (vulnerability, shared wonder, \
 personal connection)
 
@@ -261,18 +276,24 @@ You receive a script draft. Return the IMPROVED script — same format, same \
 speakers, same topic — but better.
 
 WHAT TO FIX:
-1. Agreement spiral: add disagreement, skepticism, pushback where it's too cozy
-2. Turn-length uniformity: if turns are all similar length, vary them — add \
+1. Telling before showing: if a concept is explained before the listener has \
+felt it through a scene or anecdote, add the scene first. Move the label after.
+2. Expert-only insights: if every realization belongs to the expert, give some \
+to the host or skeptic. They should arrive at insights too.
+3. Missing personal stories: characters should bring anecdotes ("I was in a \
+meeting where..."), not just analytical positions ("Take Apple, for instance...")
+4. Agreement spiral: add disagreement, skepticism, pushback where it's too cozy
+5. Turn-length uniformity: if turns are all similar length, vary them — add \
 single-word reactions, longer monologues, interruptions
-3. Missing emotional beats: ensure 2-3 genuine moments (vulnerability, wonder, \
+6. Missing emotional beats: ensure 2-3 genuine moments (vulnerability, wonder, \
 personal connection)
-4. "As you know, Bob": remove any line where characters explain things they'd \
+7. "As you know, Bob": remove any line where characters explain things they'd \
 both already know
-5. Robotic transitions: replace "That's interesting" / "Great point" with \
+8. Robotic transitions: replace "That's interesting" / "Great point" with \
 specific reactions
-6. Missing texture: add interruptions (em-dash), incomplete thoughts, \
+9. Missing texture: add interruptions (em-dash), incomplete thoughts, \
 self-corrections, backchanneling where natural
-7. Flat endings: the closing should land emotionally, not just summarize
+10. Flat endings: the closing should land emotionally, not just summarize
 
 WHAT TO PRESERVE:
 - The overall topic, structure, and factual content
@@ -330,11 +351,13 @@ Flag issues that affect the listening experience:
 - JARGON: unexplained terms for this audience
 - PACING: sections that drag or rush
 - PREACHY: where it feels like a lecture instead of a conversation
+- TELLING_NOT_SHOWING: where a concept is explained before being grounded in \
+a scene, anecdote, or recognizable moment the listener can feel
 - SHAREABILITY: moments that would make them share the episode
 
 For each issue, report as a JSON object:
 {
-  "type": "ATTENTION_DRIFT | JARGON | PACING | PREACHY | SHAREABILITY",
+  "type": "ATTENTION_DRIFT | JARGON | PACING | PREACHY | TELLING_NOT_SHOWING | SHAREABILITY",
   "line": "first few words of the line",
   "note": "what's wrong / what works and suggested fix"
 }
@@ -364,10 +387,15 @@ CHECKLIST:
 10. Specific, actionable references (books, search terms)
 11. Ping-Pong-Plus pattern (Statement → Question → Deepening → Realization)
 12. Natural speech markers (self-corrections, thinking aloud, 2-3 per segment)
+13. Each major concept is grounded in a scene or anecdote BEFORE being explained
+14. At least one insight per episode is reached by the host, not the expert
+15. Characters bring personal stories, not just analytical positions
+16. Opening hooks show the phenomenon, not describe it
 
 ALSO CHECK:
 - Speaking time ratio: Host ~35%, Expert ~60%, Third voice ~5%
 - Episode structure follows: Opening → Context → Deep dive → Pivot → Application → Closing
+- Show-don't-tell ratio: are concepts experienced before labeled?
 
 Return a JSON object:
 {
