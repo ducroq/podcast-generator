@@ -187,7 +187,40 @@ how do I put this — it was the first time he was around people who thought the
 
 These techniques work with `text_to_dialogue` as written — no post-production needed. The API handles pacing and intonation from the conversational context. For actual overlapping audio (two voices speaking simultaneously), you'd need to generate separately and layer in a DAW.
 
-## Emotional Progressions
+## Emotional Pacing
+
+Monotone emotional register causes listener drop-off within 4 minutes. Engagement data confirms: emotional variety is the strongest predictor of completion rate. Plan the emotional shape of each episode deliberately.
+
+### Tension Mapping
+
+Assign a tension/energy score (1-10) to each segment. Never stay at the same level for two consecutive segments. The contrast creates momentum.
+
+```
+OPENING        ████████░░  8  (hook — high energy, create urgency)
+SEGMENT 1      ████░░░░░░  4  (context — settle in, plant the mystery)
+SEGMENT 2      ██████░░░░  6  (deep dive — intellectual intensity builds)
+SEGMENT 3      █████████░  9  (revelation — emotional peak, source voice)
+SEGMENT 4      █████░░░░░  5  (application — practical, grounded)
+CLOSING        ███████░░░  7  (resonant ending — warm, forward-looking)
+```
+
+### Breathing Pattern
+
+High-intensity segments must be followed by reflective or humorous ones. Two high-energy segments back-to-back exhaust the listener. Two low-energy segments back-to-back lose them. Alternate.
+
+### Anticipation Beats
+
+Plant forward references every 2-3 minutes: "What they found next changed everything," "But that's not even the surprising part." These create open loops that keep listeners through transitions. Close each loop within 5 minutes of opening it — unclosed loops frustrate rather than engage.
+
+### Peak-End Rule
+
+Place the emotional peak at ~60-70% of episode length (Segment 3 in the 5-segment structure). Design a resonant closing that leaves the listener with a feeling, not just information. Listeners remember the peak moment and the ending — everything else blurs. Invest disproportionate writing effort in these two moments.
+
+### First 60 Seconds
+
+20-35% of listeners decide to stay in the opening minute. The cold open must create an open loop: a paradox, a surprising fact, a scene that raises a question. Never open with credits, introductions, or "welcome to the show." Open with the hook, then introduce.
+
+## Emotional Arcs
 
 Plan emotional arcs per segment, not just content arcs.
 
@@ -261,20 +294,33 @@ Listeners who can follow up become loyal listeners.
 
 ## Quality Checklist
 
-A script is ready when:
+### Emotional Pacing
+
+- [ ] Each segment has a tension score (1-10) and no two consecutive segments share the same score
+- [ ] Emotional peak falls at ~60-70% of episode length
+- [ ] High-energy segments are followed by reflective or humorous ones
+- [ ] At least one anticipation beat ("What happened next...") every 2-3 minutes
+- [ ] Opening 60 seconds creates an open loop — no introductions before the hook
+- [ ] Closing leaves the listener with a feeling, not just a summary
+
+### Dialogue and Character
+
 - [ ] Sounds like a real conversation when read aloud
 - [ ] Turn lengths vary — mix single-word reactions with longer monologues
 - [ ] At least 2-3 interruptions or incomplete thoughts per segment
 - [ ] Host pushes back or disagrees at least once per episode
 - [ ] Host asks questions the listener would ask
+- [ ] At least one insight per episode is reached by the host, not the expert
+- [ ] Characters bring personal stories, not just analytical positions
 - [ ] Expert gives concrete examples, not just abstractions
+
+### Content and Structure
+
+- [ ] Each major concept is grounded in a scene or anecdote before being explained
+- [ ] Opening hooks show the phenomenon, not describe it
 - [ ] Source quotes integrate naturally with setup and payoff
 - [ ] Modern relevance feels organic, not bolted on
 - [ ] 2-3 genuine emotional moments per episode
 - [ ] Each segment has a clear emotional arc
 - [ ] Specific, actionable references (museums, books, search terms)
 - [ ] Works standalone but rewards series listening
-- [ ] Each major concept is grounded in a scene or anecdote before being explained
-- [ ] At least one insight per episode is reached by the host, not the expert
-- [ ] Characters bring personal stories, not just analytical positions
-- [ ] Opening hooks show the phenomenon, not describe it
