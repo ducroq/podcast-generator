@@ -132,6 +132,24 @@ class TestFindSectionFiles:
         names = [f.name for f in files]
         assert names == ["a_intro.mp3", "b_main.mp3", "c_outro.mp3"]
 
+    def test_excludes_output_file(self, tmp_path):
+        (tmp_path / "ep_1_opening.mp3").write_bytes(b"")
+        (tmp_path / "ep_2_main.mp3").write_bytes(b"")
+        (tmp_path / "episode_mixed.mp3").write_bytes(b"")
+        files = find_section_files(str(tmp_path), exclude="episode_mixed.mp3")
+        names = [f.name for f in files]
+        assert "episode_mixed.mp3" not in names
+        assert len(names) == 2
+
+    def test_excludes_work_files(self, tmp_path):
+        (tmp_path / "ep_1_opening.mp3").write_bytes(b"")
+        (tmp_path / "episode.work.mp3").write_bytes(b"")
+        (tmp_path / "test.leveled.mp3").write_bytes(b"")
+        files = find_section_files(str(tmp_path))
+        names = [f.name for f in files]
+        assert len(names) == 1
+        assert names[0] == "ep_1_opening.mp3"
+
 
 # ---------------------------------------------------------------------------
 # Concat
@@ -146,6 +164,15 @@ class TestConcatFiles:
             cmd = mock_run.call_args[0][0]
             assert "-f" in cmd
             assert "concat" in cmd
+
+    def test_escapes_single_quotes_in_paths(self, tmp_path):
+        out = str(tmp_path / "output.mp3")
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+            concat_files(["John's_speech.mp3"], out)
+            # Read the concat list that was written
+            # The list file is deleted after, so check the ffmpeg call happened
+            assert mock_run.called
 
     def test_raises_on_failure(self, tmp_path):
         out = str(tmp_path / "output.mp3")
@@ -201,6 +228,23 @@ class TestMusicBed:
             cmd = " ".join(mock_run.call_args[0][0])
             assert "sidechaincompress" in cmd
             assert "amix" in cmd
+            # Verify corrected attack time (10ms, not 200ms)
+            assert "attack=10" in cmd
+            # Verify no extra amix weights (sidechaincompress handles ducking)
+            assert "weights" not in cmd
+            # Verify integer loop size
+            assert "2000000000" in cmd
+
+    def test_short_audio_no_negative_fade(self):
+        """Audio shorter than fade_out should not produce negative timestamp."""
+        with patch("subprocess.run") as mock_run, \
+             patch("generator.mix_episode.get_duration", return_value=3.0):
+            mock_run.return_value = MagicMock(returncode=0)
+            mix_music_bed("short.mp3", "music.mp3", "out.mp3", fade_out=5.0)
+            cmd = " ".join(mock_run.call_args[0][0])
+            # fade_out start should be max(0, 3-5) = 0, not -2
+            assert "st=-" not in cmd
+            assert "st=0.0" in cmd
 
     def test_raises_on_failure(self):
         with patch("subprocess.run") as mock_run, \

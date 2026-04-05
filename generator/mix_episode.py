@@ -28,6 +28,7 @@ Usage:
 import argparse
 import json
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -64,7 +65,6 @@ def apply_gain(input_path: str, output_path: str, gain_db: float) -> None:
     """Apply a fixed gain (dB) to an audio file."""
     if abs(gain_db) < 0.1:
         # No meaningful adjustment needed — just copy
-        import shutil
         shutil.copy2(input_path, output_path)
         return
 
@@ -94,9 +94,16 @@ def level_files(file_paths: list[str], target_lufs: float = -18.0,
 
         if not dry_run and abs(gain) >= 0.1:
             leveled = str(path) + ".leveled.mp3"
+            bak = str(path) + ".bak"
             apply_gain(path, leveled, gain)
-            Path(path).replace(str(path) + ".bak")
-            Path(leveled).replace(path)
+            Path(path).replace(bak)
+            try:
+                Path(leveled).replace(path)
+            except OSError:
+                # Restore original if the second rename fails
+                Path(bak).replace(path)
+                Path(leveled).unlink(missing_ok=True)
+                raise
 
     return results
 
@@ -105,14 +112,29 @@ def level_files(file_paths: list[str], target_lufs: float = -18.0,
 # Concatenation
 # ---------------------------------------------------------------------------
 
-def find_section_files(directory: str) -> list[Path]:
-    """Find and sort section audio files in an output directory."""
+def find_section_files(directory: str, exclude: str | None = None) -> list[Path]:
+    """Find and sort section audio files in an output directory.
+
+    Args:
+        directory: Path to directory containing section .mp3 files.
+        exclude: Optional filename to exclude (e.g. the output file).
+    """
     dir_path = Path(directory)
     if not dir_path.is_dir():
         sys.exit(f"Not a directory: {directory}")
 
     # Match pattern: *_N_*.mp3 where N is section index
-    files = list(dir_path.glob("*.mp3"))
+    exclude_names = set()
+    if exclude:
+        exclude_names.add(Path(exclude).name)
+    # Also exclude known intermediate file patterns
+    skip_suffixes = (".work.mp3", ".leveled.mp3", ".bak", ".concat.txt")
+
+    files = [
+        f for f in dir_path.glob("*.mp3")
+        if f.name not in exclude_names
+        and not any(f.name.endswith(s) for s in skip_suffixes)
+    ]
     if not files:
         sys.exit(f"No .mp3 files found in {directory}")
 
@@ -130,7 +152,7 @@ def concat_files(file_paths: list[str], output_path: str) -> None:
     with open(list_path, "w", encoding="utf-8") as f:
         for path in file_paths:
             # ffmpeg concat demuxer needs forward slashes and escaped quotes
-            safe = str(Path(path).resolve()).replace("\\", "/")
+            safe = str(Path(path).resolve()).replace("\\", "/").replace("'", "'\\''")
             f.write(f"file '{safe}'\n")
 
     cmd = [
@@ -184,36 +206,36 @@ def append_with_crossfade(main_path: str, outro_path: str, output_path: str,
 # ---------------------------------------------------------------------------
 
 def mix_music_bed(speech_path: str, music_path: str, output_path: str,
-                  music_volume: float = 0.12, duck_volume: float = 0.04,
+                  music_volume: float = 0.12,
                   fade_in: float = 3.0, fade_out: float = 5.0) -> None:
-    """Mix a music bed under speech with simple volume-based ducking.
+    """Mix a music bed under speech with sidechain ducking.
 
-    The music plays at `music_volume` during silence and `duck_volume`
-    when speech is present. Uses ffmpeg sidechaincompress for ducking.
+    The music plays at `music_volume` during silence and is automatically
+    compressed when speech is present via ffmpeg sidechaincompress.
 
     Args:
         speech_path: Main speech audio
         music_path: Background music (will be looped/trimmed to match)
         output_path: Output file
         music_volume: Music volume during gaps (0.0-1.0)
-        duck_volume: Music volume under speech (0.0-1.0)
         fade_in: Music fade-in duration at start (seconds)
         fade_out: Music fade-out duration at end (seconds)
     """
     speech_duration = get_duration(speech_path)
+    fade_out_start = max(0.0, speech_duration - fade_out)
 
     # Build filter: loop music to match speech length, apply fade, duck under speech
     filter_complex = (
         # Loop and trim music to match speech duration, apply fades
-        f"[1]aloop=loop=-1:size=2e+09,atrim=0:{speech_duration:.1f},"
-        f"afade=t=in:d={fade_in},afade=t=out:st={speech_duration - fade_out:.1f}:d={fade_out},"
+        f"[1]aloop=loop=-1:size=2000000000,atrim=0:{speech_duration:.1f},"
+        f"afade=t=in:d={fade_in},afade=t=out:st={fade_out_start:.1f}:d={fade_out},"
         f"volume={music_volume}[music];"
-        # Use sidechaincompress: speech signal ducks the music
+        # Sidechain compress: speech signal ducks the music
+        # attack=10ms (fast enough for speech transients), release=800ms (smooth recovery)
         f"[music][0]sidechaincompress="
-        f"threshold=0.02:ratio=8:attack=200:release=1000:level_in=1:level_sc=1[ducked];"
-        # Mix speech + ducked music
-        f"[0][ducked]amix=inputs=2:weights=1|{duck_volume / music_volume:.2f}:"
-        f"duration=first:normalize=0"
+        f"threshold=0.02:ratio=8:attack=10:release=800:level_sc=1[ducked];"
+        # Mix speech + ducked music (no extra weights — sidechaincompress handles ducking)
+        f"[0][ducked]amix=inputs=2:duration=first:normalize=0"
     )
 
     cmd = [
@@ -288,8 +310,8 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> None:
     args = build_parser().parse_args(argv)
 
-    # --- Find section files ---
-    sections = find_section_files(args.input_dir)
+    # --- Find section files (exclude output to avoid picking it up on re-runs) ---
+    sections = find_section_files(args.input_dir, exclude=args.output)
     print(f"Found {len(sections)} section(s):")
     for s in sections:
         dur = get_duration(str(s))
@@ -319,45 +341,52 @@ def main(argv: list[str] | None = None) -> None:
         print(f"  → {args.output}")
         return
 
-    # --- Concat sections ---
+    # --- Pipeline with cleanup on error ---
     work_path = str(Path(args.output).with_suffix(".work.mp3"))
-    print(f"\nConcatenating {len(sections)} sections...")
-    concat_files(section_paths, work_path)
-    total_dur = get_duration(work_path)
-    print(f"  Total: {total_dur:.1f}s ({total_dur / 60:.1f} min)")
+    try:
+        # --- Concat sections ---
+        print(f"\nConcatenating {len(sections)} sections...")
+        concat_files(section_paths, work_path)
+        total_dur = get_duration(work_path)
+        print(f"  Total: {total_dur:.1f}s ({total_dur / 60:.1f} min)")
 
-    # --- Intro ---
-    if args.intro:
-        print(f"Prepending intro ({args.crossfade}s crossfade)...")
-        next_path = work_path + ".intro.mp3"
-        prepend_with_crossfade(work_path, args.intro, next_path, args.crossfade)
-        Path(work_path).unlink()
-        work_path = next_path
+        # --- Intro ---
+        if args.intro:
+            print(f"Prepending intro ({args.crossfade}s crossfade)...")
+            next_path = work_path + ".intro.mp3"
+            prepend_with_crossfade(work_path, args.intro, next_path, args.crossfade)
+            Path(work_path).unlink()
+            work_path = next_path
 
-    # --- Outro ---
-    if args.outro:
-        print(f"Appending outro ({args.crossfade}s crossfade)...")
-        next_path = work_path + ".outro.mp3"
-        append_with_crossfade(work_path, args.outro, next_path, args.crossfade)
-        Path(work_path).unlink()
-        work_path = next_path
+        # --- Outro ---
+        if args.outro:
+            print(f"Appending outro ({args.crossfade}s crossfade)...")
+            next_path = work_path + ".outro.mp3"
+            append_with_crossfade(work_path, args.outro, next_path, args.crossfade)
+            Path(work_path).unlink()
+            work_path = next_path
 
-    # --- Music bed ---
-    if args.music_bed:
-        print(f"Mixing music bed (volume {args.music_volume})...")
-        next_path = work_path + ".music.mp3"
-        mix_music_bed(work_path, args.music_bed, next_path,
-                      music_volume=args.music_volume)
-        Path(work_path).unlink()
-        work_path = next_path
+        # --- Music bed ---
+        if args.music_bed:
+            print(f"Mixing music bed (volume {args.music_volume})...")
+            next_path = work_path + ".music.mp3"
+            mix_music_bed(work_path, args.music_bed, next_path,
+                          music_volume=args.music_volume)
+            Path(work_path).unlink()
+            work_path = next_path
 
-    # --- Master ---
-    if not args.no_master:
-        print("Mastering (loudnorm -16 LUFS)...")
-        master_loudnorm(work_path, args.output)
-        Path(work_path).unlink()
-    else:
-        Path(work_path).rename(args.output)
+        # --- Master ---
+        if not args.no_master:
+            print("Mastering (loudnorm -16 LUFS)...")
+            master_loudnorm(work_path, args.output)
+            Path(work_path).unlink()
+        else:
+            Path(work_path).rename(args.output)
+
+    except Exception:
+        # Clean up any intermediate files on failure
+        Path(work_path).unlink(missing_ok=True)
+        raise
 
     final_dur = get_duration(args.output)
     print(f"\nDone: {args.output} ({final_dur:.1f}s / {final_dur / 60:.1f} min)")
