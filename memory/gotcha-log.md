@@ -110,6 +110,16 @@
 **Root cause**: LLMs confidently generate plausible-sounding quotes from known authors. The text matches the author's style and argument but isn't a real passage.
 **Fix**: Always reframe LLM-generated attributions as paraphrases ("his argument boils down to...") unless you can verify the exact quote. The source fidelity review agent caught this.
 
+### Resemble Enhance degrades synthetic speech quality (2026-04-05) [RESOLVED]
+**Problem**: Resemble Enhance denoiser is neutral on synthetic TTS, enhancer drops MOS by 0.08-0.18. First measurement showed catastrophic drop (3.1→1.3) but that was a UTMOS measurement artifact.
+**Root cause**: UTMOS was measuring 44.1kHz upsampled audio without resampling to 16kHz first. At 16kHz, denoiser is neutral, enhancer slightly degrades. Synthetic speech is already clean — nothing to denoise.
+**Fix**: Don't use Resemble Enhance on synthetic TTS output. Always resample to 16kHz before UTMOS measurement.
+
+### ffmpeg sidechaincompress attack=200ms too slow for speech (2026-04-05) [RESOLVED]
+**Problem**: Music bed ducking let the first syllable of every sentence punch through at full volume.
+**Root cause**: `attack=200ms` is appropriate for music compression but way too slow for speech transients. Speech needs 5-20ms attack.
+**Fix**: Changed to `attack=10ms`, `release=800ms`. Also removed double-attenuation (amix weights on top of sidechaincompress).
+
 ## Promoted
 
 <!-- Track gotchas that have been promoted to topic files or the memory index.

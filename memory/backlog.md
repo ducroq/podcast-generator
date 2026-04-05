@@ -33,6 +33,18 @@
 - Character definitions: `podcasts/it-is-both/characters/` with signature phrases and never-does rules
 - 49 tests for write_script, 153 total. Issues #22 and #11 closed.
 
+## Audio Pipeline Completion (2026-04-05) [RESOLVED]
+- mix_episode.py: LUFS leveling, intro/outro crossfade, music bed ducking, loudnorm mastering
+- Review found and fixed: sidechain ducking bugs (#25), cleanup on error (#26), edge cases (#27)
+- master.py: Pedalboard DSP chain (highpass, EQ, compressor, gate, limiter, LUFS). Issue #15 closed.
+- Auphonic (#16) superseded by mix_episode.py — closed.
+- Resemble Enhance (#14) tested on gpu-server: neutral on denoiser, enhancer degrades quality at 4.4+ MOS. Closed.
+- Breath insertion (#17): synthetic band-passed pink noise with inhale/exhale envelopes in add_realism.py
+- Content-aware backchannels (#18): --script flag for placement based on dialogue content (questions, emotions, turn length)
+- Show-don't-tell (#24): NARRATIVE_DESIGN.md updated + all write_script.py prompts updated
+- It Is Both project files moved to it_is_both repo
+- Tests: 104 → 218
+
 ## Dia2 Single-Pass TTS Evaluation [RESOLVED]
 - Evaluated 2026-04-04: MOS 3.13 (voice cloned) vs our 4.3-4.5 — not competitive
 - User confirmed: "really terrible" compared to Chatterbox/Qwen/ElevenLabs

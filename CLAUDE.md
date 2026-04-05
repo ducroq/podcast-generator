@@ -41,15 +41,15 @@ generator/audio_utils.py        → Shared ffmpeg helpers (detect_silences, get_
 generator/quality_checks.py     → Optional quality checks (UTMOS MOS, speaker similarity, language ID)
 generator/validate_tts.py       → Validation pipeline: ASR + quality checks → validation.json
 generator/_transcribe_worker.py → Whisper subprocess worker (avoids code injection)
-generator/add_realism.py        → Post-processing: overlaps, fillers, jitter, room tone
+generator/add_realism.py        → Post-processing: overlaps, fillers, breaths, backchannels, jitter, room tone
+generator/master.py             → Pedalboard mastering chain (EQ, compression, gate, limiter, LUFS)
 generator/trim_silences.py      → Silence trimming (loudnorm OFF by default)
 generator/asr_*.py              → ASR comparison scripts (Whisper vs Qwen3-ASR)
 generator/qwen_bootstrap_refs.py → Bootstrap matched refs for Qwen3-TTS
 voices/                         → Master voice library (voices.json + designs/ + *.mp3)
 podcasts/                       → Per-podcast projects (scripts + generated audio)
-tests/                          → Test suite (153 tests, ~8s, no GPU needed)
+tests/                          → Test suite (218 tests, ~8s, no GPU needed)
 docs/                           → Methodology guides
-podcasts/it-is-both/            → "It Is Both" podcast (characters/ + scripts)
 ```
 
 ## Key Commands
@@ -78,6 +78,13 @@ python generator/validate_tts.py . --manifest manifest.json --revalidate-flagged
 python generator/mix_episode.py output/ep01/ -o episode.mp3 --level
 python generator/mix_episode.py output/ep01/ -o episode.mp3 --intro intro.mp3 --outro outro.mp3 --music-bed music.mp3
 python generator/mix_episode.py output/ep01/ --dry-run  # preview without processing
+
+# Add realism (breaths, backchannels, overlaps, jitter)
+python generator/add_realism.py input.mp3 output.mp3 --script script.txt --seed 42
+
+# Master with Pedalboard (optional alternative to ffmpeg loudnorm)
+python generator/master.py input.mp3 -o mastered.mp3
+python generator/master.py input.mp3 --analyze  # measure loudness only
 ```
 
 ## Quality Checks (on gpu-server)
@@ -97,10 +104,10 @@ Results appear in `validation.json` under the `quality` field per entry.
 ## Testing
 
 ```bash
-python -m pytest tests/ -v  # 181 tests, ~7 seconds, no GPU needed
+python -m pytest tests/ -v  # 218 tests, ~8 seconds, no GPU needed
 ```
 
-Covers: audio_utils, voice_settings, hallucination detection, validation reports, add_realism filter graphs (end-to-end ffmpeg), trim_silences, full pipeline chain, write_script (ingestion, LLM passes, review, CLI), mix_episode (LUFS, crossfade, ducking, mastering).
+Covers: audio_utils, voice_settings, hallucination detection, validation reports, add_realism (filter graphs, breaths, backchannels), trim_silences, full pipeline chain, write_script (ingestion, LLM passes, review, CLI), mix_episode (LUFS, crossfade, ducking, mastering), master (Pedalboard DSP chain).
 
 ## Voice Library (100% Synthetic, 30 voices)
 
