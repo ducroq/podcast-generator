@@ -207,6 +207,18 @@ with 30-second monologues. This contrast creates rhythm.
 - Backchanneling: short reactive lines between longer turns ("Three years?" / "Exactly.")
 - Complete each other's thoughts occasionally
 
+TTS PACING (critical for audio generation):
+- Use "..." (ellipsis) for thinking pauses, trailing off, collecting thoughts. \
+TTS creates a held pause. Example: "I think... maybe part of this is just how people tell stories."
+- Use "---" ONLY for interruptions and abrupt cut-offs. TTS creates sharp energy break.
+- Use commas for micro-pauses within sentences.
+- NEVER use "ehm" or "uh" as filler. Instead:
+  - Older/professional characters: "well...", "right, but...", "I don't know if..."
+  - Young/direct characters: "like...", "I mean...", "okay so..."
+  - Vulnerable moments: use silence (just "...") — the pause IS the hesitation
+- Lines over 40 words should have natural breathing points (comma, ellipsis, or \
+em-dash) to prevent monotone TTS delivery.
+
 GUARD RAILS:
 - NO agreement spiral — the host must challenge, question, push back
 - NO "as you know, Bob" — never have characters explain things they'd both already know
@@ -308,6 +320,11 @@ WHAT TO CHECK:
 - Emotion tags are valid English words in brackets
 - Numbers are spelled out
 - No section headers or metadata — just dialogue lines
+- SHORT LINES (1-3 words): TTS engines produce unreliable output for very short \
+utterances. Pad them naturally: "Both?" → "Wait... both?" or "Both of them?". \
+"Yeah." → "Yeah, I think so." Consecutive short lines from the same speaker \
+should be merged into one line. The ONLY acceptable 1-word lines are strong \
+emotional reactions that need isolation ("...Forty years." / "Exactly.").
 
 Output ONLY the improved script. No commentary, no notes."""
 
@@ -591,6 +608,84 @@ LINE_PATTERN = __import__("re").compile(
 )
 
 
+# ---------------------------------------------------------------------------
+# Pass: Segmentation (identifies long lines, generates TTS overrides)
+# ---------------------------------------------------------------------------
+
+SEGMENT_SYSTEM = """\
+You are a TTS performance director. You receive a long dialogue line that \
+needs to be split into segments with controlled pauses for natural delivery.
+
+A TTS engine generating this line in one shot will rush through it. Your job: \
+split it into segments with authored pause durations that create natural \
+breathing, thinking, and dramatic pacing.
+
+Rules:
+- Each segment should be a natural phrase or clause (5-20 words)
+- pause_after: 0.15-0.2 for comma-level micro-pauses
+- pause_after: 0.25-0.35 for thought transitions
+- pause_after: 0.4-0.6 for dramatic beats, emotional shifts, or trailing off
+- The last segment should have pause_after: 0.0
+- Preserve the EXACT text — do not rephrase, only split
+
+Return valid JSON — an array of segment objects:
+[
+  {"text": "First part of the line...", "pause_after": 0.3},
+  {"text": "second part continues here.", "pause_after": 0.0}
+]
+
+Output ONLY the JSON array. No commentary."""
+
+
+def pass_segment(client, model, line_text):
+    """Split a single long line into segments with pause durations.
+
+    Returns list of segment dicts or None if segmentation fails.
+    """
+    user_msg = f"Split this dialogue line into segments:\n\n{line_text}"
+    try:
+        response = call_llm(client, model, SEGMENT_SYSTEM, user_msg, max_tokens=2048)
+        # Parse JSON from response (may be wrapped in markdown fences)
+        text = response.strip()
+        if text.startswith("```"):
+            text = text.split("\n", 1)[1].rsplit("```", 1)[0].strip()
+        segments = json.loads(text)
+        if isinstance(segments, list) and all("text" in s for s in segments):
+            return segments
+    except (json.JSONDecodeError, IndexError, KeyError):
+        pass
+    return None
+
+
+def generate_overrides(client, model, script, min_words=35):
+    """Scan a script for long lines and generate TTS overrides.
+
+    Returns an overrides dict: {"overrides": {"015": [...], ...}}
+    """
+    from elevenlabs.src.voice_settings import parse_line
+
+    overrides = {}
+    line_index = 0
+    long_count = 0
+
+    for raw in script.splitlines():
+        stripped = raw.strip()
+        if not stripped:
+            continue
+        speaker, emotion, text = parse_line(stripped)
+        if speaker and text:
+            word_count = len(text.split())
+            if word_count >= min_words:
+                long_count += 1
+                segments = pass_segment(client, model, text)
+                if segments:
+                    key = f"{line_index:03d}"
+                    overrides[key] = segments
+            line_index += 1
+
+    return {"overrides": overrides}, long_count
+
+
 def validate_script(script: str) -> list[str]:
     """Check that every non-blank line matches the expected format. Returns warnings."""
     warnings = []
@@ -642,6 +737,10 @@ def build_parser() -> argparse.ArgumentParser:
                     help="Target listener description for review (e.g. '28yo new grad, gets handed business books')")
     p.add_argument("--review-only",
                     help="Review an existing script file (skip generation, just review)")
+    p.add_argument("--segment", action="store_true",
+                    help="Generate TTS overrides for long lines (>35 words)")
+    p.add_argument("--segment-min-words", type=int, default=35,
+                    help="Minimum word count to trigger segmentation (default: 35)")
     return p
 
 
@@ -786,8 +885,26 @@ def main(argv: list[str] | None = None) -> None:
         if len(warnings) > 10:
             print(f"  ... and {len(warnings) - 10} more")
 
-    # --- Write output ---
+    # --- Determine output path (needed by segmentation) ---
     output_path = args.output or f"script_{datetime.now():%Y%m%d_%H%M%S}.txt"
+
+    # --- Segmentation ---
+    if args.segment:
+        print(f"\nSegmentation: scanning for lines >{args.segment_min_words} words...")
+        overrides_data, long_count = generate_overrides(
+            client, args.model, final, min_words=args.segment_min_words,
+        )
+        n_overrides = len(overrides_data.get("overrides", {}))
+        print(f"  {long_count} long lines found, {n_overrides} segmented")
+        if n_overrides > 0:
+            overrides_path = Path(output_path).with_suffix(".overrides.json")
+            overrides_path.write_text(
+                json.dumps(overrides_data, indent=2, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            print(f"  Overrides written to: {overrides_path}")
+
+    # --- Write output ---
     Path(output_path).write_text(final, encoding="utf-8")
     print(f"\nScript written to: {output_path}")
     print(f"Ready for: python generator/elevenlabs/generate_episode.py {output_path}")

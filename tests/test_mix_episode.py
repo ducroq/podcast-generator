@@ -19,7 +19,11 @@ from generator.mix_episode import (
     prepend_with_crossfade,
     append_with_crossfade,
     mix_music_bed,
+    crossfade_sting,
+    mix_music_bed_with_bleed,
+    master_peak_limit,
     master_loudnorm,
+    check_validation,
     build_parser,
 )
 
@@ -258,6 +262,29 @@ class TestMusicBed:
 # Master
 # ---------------------------------------------------------------------------
 
+class TestMasterPeakLimit:
+    def test_calls_alimiter(self):
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+            master_peak_limit("in.mp3", "out.mp3")
+            cmd = " ".join(mock_run.call_args[0][0])
+            assert "alimiter" in cmd
+            assert "0.891" in cmd  # -1 dBTP
+
+    def test_custom_limit(self):
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+            master_peak_limit("in.mp3", "out.mp3", limit_db=-2.0)
+            cmd = " ".join(mock_run.call_args[0][0])
+            assert "alimiter" in cmd
+
+    def test_raises_on_failure(self):
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=1, stderr="error")
+            with pytest.raises(RuntimeError, match="Peak limiting"):
+                master_peak_limit("in.mp3", "out.mp3")
+
+
 class TestMasterLoudnorm:
     def test_calls_loudnorm(self):
         with patch("subprocess.run") as mock_run:
@@ -315,3 +342,136 @@ class TestCLI:
         assert args.target_lufs == -20
         assert args.no_master is True
         assert args.dry_run is True
+
+    def test_loudnorm_flag(self):
+        parser = build_parser()
+        args = parser.parse_args(["output/"])
+        assert args.loudnorm is False  # peak limit is default
+        args = parser.parse_args(["output/", "--loudnorm"])
+        assert args.loudnorm is True
+
+    def test_sting_and_bleed_flags(self):
+        parser = build_parser()
+        args = parser.parse_args([
+            "output/", "--sting", "sting.mp3",
+            "--sting-overlap", "5.0", "--sting-volume", "0.4",
+            "--music-bed", "music.mp3",
+            "--music-solo", "4.0", "--music-bleed", "8.0",
+        ])
+        assert args.sting == "sting.mp3"
+        assert args.sting_overlap == 5.0
+        assert args.sting_volume == 0.4
+        assert args.music_solo == 4.0
+        assert args.music_bleed == 8.0
+
+    def test_backchannel_flags(self):
+        parser = build_parser()
+        args = parser.parse_args([
+            "output/", "--backchannels", "bc/",
+            "--bc-manifest", "manifest.json",
+            "--bc-max", "8", "--bc-min-gap", "3", "--bc-seed", "99",
+        ])
+        assert args.backchannels == "bc/"
+        assert args.bc_manifest == "manifest.json"
+        assert args.bc_max == 8
+        assert args.bc_min_gap == 3
+        assert args.bc_seed == 99
+
+    def test_validation_flags_parse(self):
+        parser = build_parser()
+        args = parser.parse_args([
+            "output/", "--require-validation", "--skip-validation",
+        ])
+        assert args.require_validation is True
+        assert args.skip_validation is True
+
+
+# ---------------------------------------------------------------------------
+# Validation gate
+# ---------------------------------------------------------------------------
+
+class TestCheckValidation:
+    def test_no_report_returns_ok(self, tmp_path):
+        ok, report = check_validation(str(tmp_path))
+        assert ok is True
+        assert report is None
+
+    def test_clean_report_returns_ok(self, tmp_path):
+        report = {"summary": {"total": 5, "ok": 5, "flagged": 0, "errors": 0}}
+        (tmp_path / "validation.json").write_text(json.dumps(report))
+        ok, loaded = check_validation(str(tmp_path))
+        assert ok is True
+        assert loaded["summary"]["ok"] == 5
+
+    def test_flagged_report_returns_not_ok(self, tmp_path):
+        report = {"summary": {"total": 5, "ok": 3, "flagged": 2, "errors": 0}}
+        (tmp_path / "validation.json").write_text(json.dumps(report))
+        ok, loaded = check_validation(str(tmp_path))
+        assert ok is False
+        assert loaded["summary"]["flagged"] == 2
+
+    def test_error_report_returns_not_ok(self, tmp_path):
+        report = {"summary": {"total": 5, "ok": 4, "flagged": 0, "errors": 1}}
+        (tmp_path / "validation.json").write_text(json.dumps(report))
+        ok, loaded = check_validation(str(tmp_path))
+        assert ok is False
+
+
+# ---------------------------------------------------------------------------
+# Sting crossfade
+# ---------------------------------------------------------------------------
+
+class TestCrossfadeSting:
+    def test_calls_ffmpeg_with_filter(self):
+        with patch("subprocess.run") as mock_run, \
+             patch("generator.mix_episode.get_duration", return_value=10.0):
+            mock_run.return_value = MagicMock(returncode=0)
+            crossfade_sting("main.mp3", "sting.mp3", "out.mp3")
+            cmd = " ".join(mock_run.call_args[0][0])
+            assert "filter_complex" in cmd or "-filter_complex" in str(mock_run.call_args)
+            assert "sting.mp3" in cmd
+
+    def test_custom_overlap_and_volume(self):
+        with patch("subprocess.run") as mock_run, \
+             patch("generator.mix_episode.get_duration", return_value=10.0):
+            mock_run.return_value = MagicMock(returncode=0)
+            crossfade_sting("main.mp3", "sting.mp3", "out.mp3",
+                            overlap_sec=5.0, sting_volume=0.5)
+            cmd = " ".join(mock_run.call_args[0][0])
+            assert "0.5" in cmd  # sting volume
+
+    def test_raises_on_failure(self):
+        with patch("subprocess.run") as mock_run, \
+             patch("generator.mix_episode.get_duration", return_value=10.0):
+            mock_run.return_value = MagicMock(returncode=1, stderr="error")
+            with pytest.raises(RuntimeError, match="Sting crossfade"):
+                crossfade_sting("main.mp3", "sting.mp3", "out.mp3")
+
+
+# ---------------------------------------------------------------------------
+# Music bed with bleed
+# ---------------------------------------------------------------------------
+
+class TestMusicBedWithBleed:
+    def test_calls_ffmpeg(self):
+        with patch("subprocess.run") as mock_run, \
+             patch("generator.mix_episode.get_duration", return_value=10.0):
+            mock_run.return_value = MagicMock(returncode=0)
+            mix_music_bed_with_bleed("speech.mp3", "music.mp3", "out.mp3",
+                                     solo_duration=4.0, bleed_duration=8.0)
+            assert mock_run.called
+
+    def test_filter_includes_sidechain(self):
+        with patch("subprocess.run") as mock_run, \
+             patch("generator.mix_episode.get_duration", return_value=10.0):
+            mock_run.return_value = MagicMock(returncode=0)
+            mix_music_bed_with_bleed("speech.mp3", "music.mp3", "out.mp3")
+            cmd = " ".join(mock_run.call_args[0][0])
+            assert "sidechaincompress" in cmd
+
+    def test_raises_on_failure(self):
+        with patch("subprocess.run") as mock_run, \
+             patch("generator.mix_episode.get_duration", return_value=10.0):
+            mock_run.return_value = MagicMock(returncode=1, stderr="error")
+            with pytest.raises(RuntimeError, match="Music bed with bleed"):
+                mix_music_bed_with_bleed("speech.mp3", "music.mp3", "out.mp3")

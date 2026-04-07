@@ -125,6 +125,21 @@
 **Root cause**: The `SKILL.md` frontmatter had `disable-model-invocation: true`, inherited from the `agent-ready-projects` template (`templates/curate.md`).
 **Fix**: Changed to `false` in both the project skill and the framework template.
 
+### generate_backchannels stub looked like a real generator (2026-04-07)
+**Problem**: `generate_backchannel_clips()` was a stub that created manifest entries but no audio. CLI printed "Generating clips for..." implying TTS work. Downstream `mix_episode.py` silently skipped backchannels with no warning.
+**Root cause**: Stub function named identically to the real generator, with progress output that implied action.
+**Fix**: Split into `plan_backchannel_clips()` (manifest only) and `generate_backchannel_clips()` (raises NotImplementedError). CLI now prints "Planning manifest for..." with bold WARNING that no audio is generated.
+
+### Path traversal gaps in new modules (2026-04-07)
+**Problem**: Security audit found `mix_preprocess.py` and `validate_tts.py` (ref_audio field) accepted manifest paths without traversal checks, unlike the existing `validate_tts.py` file field which had proper guards.
+**Root cause**: New code followed the function patterns but not the security patterns from the existing codebase.
+**Fix**: Applied same 3-step guard (reject absolute, reject `..`, check `is_relative_to`) to all manifest-driven path lookups. Pattern: always copy the guard from `validate_tts.py:validate_manifest`.
+
+### Temp files leaked on exception in subprocess workflows (2026-04-07)
+**Problem**: `_place_backchannels_step()` and `analyze_voice.py:load_audio_mono()` used `NamedTemporaryFile(delete=False)` but only cleaned up on the happy path.
+**Root cause**: Missing `try/finally` around the processing block.
+**Fix**: Wrapped all temp file usage in `try/finally` with `Path(tmp.name).unlink(missing_ok=True)`.
+
 ## Promoted
 
 <!-- Track gotchas that have been promoted to topic files or the memory index.
@@ -139,3 +154,5 @@
 |-------|------------|------|
 | ML package APIs are unreliable | CLAUDE.md hard constraint candidate | 2026-04-04 |
 | ffmpeg filter graphs must be e2e tested | `tests/test_add_realism.py::TestEndToEndFilterGraph` | 2026-04-04 |
+| Path traversal guard on all manifest-driven paths | Pattern: copy guard from `validate_tts.py:validate_manifest` | 2026-04-07 |
+| Temp files need try/finally cleanup | Pattern: always wrap `NamedTemporaryFile(delete=False)` in try/finally | 2026-04-07 |

@@ -10,6 +10,18 @@ Script → Generate (ElevenLabs, Chatterbox, or Qwen) → Validate → Trim sile
 
 Each step is independent — you can retry any phase without redoing the others.
 
+### Engine Selection
+
+**Use one TTS engine per episode.** Mixing engines (e.g. Chatterbox + Qwen) within one episode creates audible acoustic mismatches — different noise floors, room characteristics, and tonal qualities.
+
+| Priority | Engine | When to use |
+|----------|--------|-------------|
+| 1 | Qwen3-TTS | Cleanest output, best pacing, but hallucination risk on long lines |
+| 2 | Chatterbox (tuned) | Reliable fallback for individual hallucinated lines |
+| 3 | ElevenLabs | Best overall quality (paid), multilingual |
+
+One Chatterbox line among 87 Qwen lines is not audibly different. A 50/50 mix is. If you must re-generate individual lines with a different engine, keep it under ~5% of total lines.
+
 ## Script Format
 
 ```

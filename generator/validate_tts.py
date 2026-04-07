@@ -105,8 +105,47 @@ WORD_DURATION = {
     "nl": 0.35,
 }
 
+# Maximum allowed seconds per word before flagging as duration anomaly.
+# A 47-word line should never be >37.6s. Catches runaway Qwen generations
+# (e.g. 666s for a 47-word line) instantly, before expensive ASR.
+MAX_SECONDS_PER_WORD = 0.8
 
-def validate_single(audio_path, expected_text, language="en", ref_path=None):
+# Multiplier applied to calibrated or default word duration for the anomaly ceiling.
+# At 2.5x, a voice averaging 0.4s/word gets a ceiling of 1.0s/word.
+DURATION_ANOMALY_MULTIPLIER = 2.5
+
+
+def calibrate_word_duration(ref_audio_path, ref_text, language="en"):
+    """Compute seconds-per-word from a voice reference clip.
+
+    Uses the known ref_text and ref audio duration to calibrate the
+    expected speaking rate for this specific voice. Returns seconds/word
+    or None if calibration fails.
+    """
+    try:
+        ref_duration = get_duration(ref_audio_path)
+        word_count = len(ref_text.split())
+        if word_count < 3:
+            return None
+        return ref_duration / word_count
+    except Exception:
+        return None
+
+
+def get_max_duration(expected_words, language="en", calibrated_spw=None):
+    """Compute maximum allowed duration for a line.
+
+    Uses calibrated seconds-per-word if available, otherwise falls back
+    to MAX_SECONDS_PER_WORD. Applies DURATION_ANOMALY_MULTIPLIER to allow
+    natural variation above the baseline rate.
+    """
+    if calibrated_spw is not None:
+        return expected_words * calibrated_spw * DURATION_ANOMALY_MULTIPLIER
+    return expected_words * MAX_SECONDS_PER_WORD
+
+
+def validate_single(audio_path, expected_text, language="en", ref_path=None,
+                    calibrated_spw=None):
     """Validate a single audio file. Returns dict with results.
 
     Runs core checks (ASR + duration) always, plus optional quality checks
@@ -123,6 +162,33 @@ def validate_single(audio_path, expected_text, language="en", ref_path=None):
     expected_words = len(expected_text.split())
     expected_duration = expected_words * WORD_DURATION.get(language, 0.35)
     duration_ratio = duration / max(expected_duration, 0.1)
+    max_duration = get_max_duration(expected_words, language, calibrated_spw)
+
+    # Pre-ASR duration check — instant, catches runaway generations
+    issues = []
+    if duration < 0.5:
+        issues.append(f"SILENT: output is only {duration:.1f}s")
+    elif expected_words > 0 and duration > max_duration:
+        if calibrated_spw is not None:
+            issues.append(
+                f"DURATION_ANOMALY: {duration:.1f}s for {expected_words} words "
+                f"(max {max_duration:.1f}s, calibrated {calibrated_spw:.2f}s/word "
+                f"× {DURATION_ANOMALY_MULTIPLIER}x margin)")
+        else:
+            issues.append(
+                f"DURATION_ANOMALY: {duration:.1f}s for {expected_words} words "
+                f"(max {max_duration:.1f}s at {MAX_SECONDS_PER_WORD}s/word)")
+
+    if issues:
+        # Skip expensive ASR — duration alone is enough to flag
+        return {
+            "file": str(audio_path),
+            "status": "FLAGGED",
+            "duration": round(duration, 1),
+            "expected_text": expected_text,
+            "transcription": None,
+            "issues": issues,
+        }
 
     transcription = transcribe(str(audio_path), language=language)
     if transcription is None:
@@ -137,9 +203,6 @@ def validate_single(audio_path, expected_text, language="en", ref_path=None):
 
     if duration_ratio > 2.0:
         issues.append(f"DURATION: {duration:.1f}s is {duration_ratio:.1f}x expected ({expected_duration:.1f}s)")
-        is_ok = False
-    elif duration < 0.5:
-        issues.append(f"SILENT: output is only {duration:.1f}s")
         is_ok = False
 
     result = {
@@ -231,9 +294,26 @@ def validate_manifest(manifest_path, skip_passed=False):
             skipped += 1
             continue
 
+        # Calibrate word duration from voice reference if available
+        cal_spw = None
+        ref_audio = entry.get("ref_audio")
+        ref_text = entry.get("ref_text")
+        if ref_audio and ref_text:
+            ref_fp = Path(ref_audio)
+            if ref_fp.is_absolute() or '..' in ref_fp.parts:
+                ref_audio = None  # reject unsafe paths
+            else:
+                ref_audio_path = (manifest_dir / ref_fp).resolve()
+                if not ref_audio_path.is_relative_to(manifest_dir.resolve()):
+                    ref_audio = None  # resolves outside manifest dir
+                else:
+                    cal_spw = calibrate_word_duration(
+                        str(ref_audio_path), ref_text, entry.get("language", "en"))
+
         result = validate_single(str(resolved), entry["text"],
                                  language=entry.get("language", "en"),
-                                 ref_path=entry.get("ref_audio"))
+                                 ref_path=ref_audio,
+                                 calibrated_spw=cal_spw)
         results.append(result)
         if result["status"] == "FLAGGED":
             flagged += 1

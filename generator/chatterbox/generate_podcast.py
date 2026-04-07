@@ -27,6 +27,20 @@ VOICE_REFS = {
     'victoria': Path.home() / 'voice_refs' / 'victoria.mp3',
 }
 
+# Tuned defaults — cleaner output with minimal expressiveness loss.
+# Original Chatterbox defaults: temperature=0.8, exaggeration=0.5, cfg_weight=0.5
+# Confirmed via blind A/B test (It Is Both Ep01).
+TUNED_DEFAULTS = {
+    'temperature': 0.6,
+    'exaggeration': 0.3,
+    'cfg_weight': 0.7,
+}
+EXPRESSIVE_DEFAULTS = {
+    'temperature': 0.8,
+    'exaggeration': 0.5,
+    'cfg_weight': 0.5,
+}
+
 def parse_line(line):
     """Parse a dialogue line: 'Speaker: [emotion] Text'
 
@@ -66,8 +80,13 @@ def master_audio(input_path, output_path):
         return False
     return True
 
-def generate_podcast(script_path, output_path, test_lines=None, skip_master=False):
+def generate_podcast(script_path, output_path, test_lines=None, skip_master=False,
+                     expressive=False):
     """Generate podcast from script with multi-speaker support"""
+    tts_defaults = EXPRESSIVE_DEFAULTS if expressive else TUNED_DEFAULTS
+    print(f'TTS defaults: {"expressive" if expressive else "tuned"} '
+          f'(temp={tts_defaults["temperature"]}, exagg={tts_defaults["exaggeration"]}, '
+          f'cfg={tts_defaults["cfg_weight"]})')
     print(f'Loading script: {script_path}')
     with open(script_path, 'r', encoding='utf-8') as f:
         lines = f.readlines()
@@ -105,10 +124,11 @@ def generate_podcast(script_path, output_path, test_lines=None, skip_master=Fals
         print(f'  [{i+1}/{len(dialogues)}] {speaker} {ref_label}: {text[:40]}...')
         
         # Generate speech with or without voice reference
+        gen_kwargs = dict(tts_defaults)
         if ref_path:
-            wav = model.generate(text, audio_prompt_path=ref_path)
+            wav = model.generate(text, audio_prompt_path=ref_path, **gen_kwargs)
         else:
-            wav = model.generate(text)
+            wav = model.generate(text, **gen_kwargs)
         
         audio_chunks.append(wav)
         
@@ -163,6 +183,9 @@ if __name__ == '__main__':
     parser.add_argument('--test', type=int, help='Only process first N lines')
     parser.add_argument('--master', action='store_true',
                         help='Apply mastering (loudnorm). Only use as final step after mixing.')
+    parser.add_argument('--expressive', action='store_true',
+                        help='Use original expressive defaults (temp=0.8, exagg=0.5, cfg=0.5)')
     args = parser.parse_args()
 
-    generate_podcast(args.script, args.output, args.test, skip_master=not args.master)
+    generate_podcast(args.script, args.output, args.test, skip_master=not args.master,
+                     expressive=args.expressive)

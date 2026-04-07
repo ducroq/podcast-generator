@@ -67,6 +67,16 @@
 - Driven by ovr.news international content needs
 - Issue #12 closed (reframed from MFA to LLM approach).
 
+## Pipeline Consolidation from It Is Both Ep01 (2026-04-07) [RESOLVED]
+- Closed 12 of 13 GitHub issues (#28-39) — only #40 (vision doc) remains
+- 10 new modules: clean_audio, tts_overrides, mix_preprocess, assemble_intro, generate_backchannels, place_backchannels, analyze_voice, export_stems, plus write_script segmentation pass and mix_episode extensions
+- Modified 4 modules: mix_episode (validation gate, sting, bleed, peak-limit, backchannels), validate_tts (duration anomaly, voice calibration), write_script (pacing, short lines, segmentation), chatterbox/generate_podcast (tuned defaults)
+- Security audit: 7 findings fixed (path traversal, temp files, input validation)
+- Code review: 5 must-fix resolved (clipping guard, ffmpeg returncode, stub clarity, sys.exit in library)
+- UX review: 13 findings, key ones fixed (dry-run gaps, import paths, warnings, JSON errors)
+- Tests: 284 → 486, all passing, ~11s
+- Reference source: it_is_both/podcasts/production/ (episode-specific scripts extracted and generalized)
+
 ## Prosody Reference Library (2026-04-05) [RESOLVED]
 - 25 Chatterbox-generated prosody refs on gpu-server (5 voices x 5 emotions)
 - Voices: emma, felix, lisa, daan_en, sofie_en

@@ -21,7 +21,7 @@ Methodology and toolkit for producing AI-generated podcasts. Shared voice librar
 - **Never commit `.env`** — it contains API keys and voice IDs. Use `.env.example` as reference.
 - **Audio tags must be in English** — `[excited]` not `[begeistert]`. ElevenLabs requires this even in Dutch/German scripts.
 - **Use `text_to_dialogue`, not `text_to_speech`** — quality difference is ~2x. Generate full sections, not line by line.
-- **Never loudnorm before mixing music** — loudnorm is always the final step, after DAW mixing.
+- **Never loudnorm before mixing music** — mastering is always the final step, after mixing. Default is peak limiting (-1 dBTP); use `--loudnorm` only when a platform requires specific LUFS.
 - **All voices are 100% synthetic** — designed via ElevenLabs Voice Design v3, not cloned from real people.
 - **Spell out numbers for TTS** — "nineteen twenty-two" not "1922".
 
@@ -40,6 +40,14 @@ generator/mix_episode.py         → Episode mixer (LUFS leveling, intro/outro, 
 generator/audio_utils.py        → Shared ffmpeg helpers (detect_silences, get_duration, get_sample_rate)
 generator/quality_checks.py     → Optional quality checks (UTMOS MOS, speaker similarity, language ID)
 generator/validate_tts.py       → Validation pipeline: ASR + quality checks → validation.json
+generator/clean_audio.py        → Post-TTS cleanup: click detection/repair, silence trim, fades (numpy)
+generator/tts_overrides.py      → Segmented TTS generation: split long lines, inter-segment pauses
+generator/mix_preprocess.py     → Pre-mix processing: room reverb, per-speaker volume, RMS normalize
+generator/assemble_intro.py     → Assemble multi-speaker intro WAVs into single voiceover track
+generator/generate_backchannels.py → Generate backchannel clip libraries per voice
+generator/place_backchannels.py → Place backchannel clips at strategic positions in mixed audio
+generator/analyze_voice.py      → Voice register analysis: F0 and spectral centroid for cast separation
+generator/export_stems.py       → Per-speaker stem export for DAW editing (Audacity LOF import)
 generator/_transcribe_worker.py → Whisper subprocess worker (avoids code injection)
 generator/add_realism.py        → Post-processing: overlaps, fillers, breaths, backchannels, jitter, room tone
 generator/master.py             → Pedalboard mastering chain (EQ, compression, gate, limiter, LUFS)
@@ -50,7 +58,7 @@ generator/asr_*.py              → ASR comparison scripts (Whisper vs Qwen3-ASR
 generator/qwen_bootstrap_refs.py → Bootstrap matched refs for Qwen3-TTS
 voices/                         → Master voice library (voices.json + designs/ + *.mp3)
 podcasts/                       → Per-podcast projects (scripts + generated audio)
-tests/                          → Test suite (284 tests, ~10s, no GPU needed)
+tests/                          → Test suite (485 tests, ~13s, no GPU needed)
 docs/                           → Methodology guides
 ```
 
@@ -69,6 +77,11 @@ python generate_episode.py script.txt --lang de --output-dir output/
 # Repair single line
 python generate_single_line.py "Emma: [excited] This is amazing!" fix_01
 
+# Clean TTS output (click repair, silence trim, 8ms fades — run on gpu-server)
+python generator/clean_audio.py output_dir/                          # clean all WAVs in directory
+python generator/clean_audio.py output_dir/ --dry-run                # preview only
+python generator/clean_audio.py single_file.wav --threshold 0.2      # custom click threshold
+
 # Trim silences (after generation, before mixing — loudnorm OFF by default)
 python generator/trim_silences.py input.mp3 output.mp3
 
@@ -76,13 +89,39 @@ python generator/trim_silences.py input.mp3 output.mp3
 python generator/validate_tts.py . --manifest manifest.json --language en --engine qwen
 python generator/validate_tts.py . --manifest manifest.json --revalidate-flagged  # only re-check failures
 
-# Mix episode (replaces manual DAW step — intro, music bed, leveling, mastering)
+# TTS overrides (segmented generation for long lines)
+python generator/tts_overrides.py overrides.json --list              # list all overrides
+python generator/tts_overrides.py overrides.json --check 015         # show override for line 015
+python generator/tts_overrides.py overrides.json --validate          # validate JSON structure
+
+# Pre-process lines (room reverb, per-speaker volume — before mixing)
+python generator/mix_preprocess.py output_dir/ --manifest manifest.json
+python generator/mix_preprocess.py output_dir/ --manifest manifest.json \
+    --reverb-decay 0.15 --reverb-mix 0.02 --speaker-volume '{"zara": 2.5}'
+
+# Assemble intro voiceover (multi-speaker intro into single track)
+python generator/assemble_intro.py intro_dir/ --lines intro_lines.txt -o intro.wav
+
+# Mix episode (intro, sting, music bed with bleed, leveling, mastering)
 python generator/mix_episode.py output/ep01/ -o episode.mp3 --level
 python generator/mix_episode.py output/ep01/ -o episode.mp3 --intro intro.mp3 --outro outro.mp3 --music-bed music.mp3
+python generator/mix_episode.py output/ep01/ -o episode.mp3 --sting sting.mp3 --music-bed music.mp3 --music-solo 4 --music-bleed 8
+python generator/mix_episode.py output/ep01/ -o episode.mp3 --require-validation  # gate on validation.json
 python generator/mix_episode.py output/ep01/ --dry-run  # preview without processing
 
 # Add realism (breaths, backchannels, overlaps, jitter)
 python generator/add_realism.py input.mp3 output.mp3 --script script.txt --seed 42
+
+# Generate backchannel clip library (per voice, reusable across episodes)
+python generator/generate_backchannels.py --voices voices.json -o bc_clips/
+python generator/generate_backchannels.py --list bc_clips/           # inspect existing library
+
+# Analyze voice registers for cast assignment (F0 + spectral centroid)
+python generator/analyze_voice.py voices/alex.mp3 voices/lisa.mp3 voices/zara.mp3
+python generator/analyze_voice.py voices/*.mp3 --min-gap 100 --json
+
+# Export per-speaker stems for DAW editing
+python generator/export_stems.py output_dir/ --script script.txt -o stems/
 
 # Master with Pedalboard (optional alternative to ffmpeg loudnorm)
 python generator/master.py input.mp3 -o mastered.mp3
@@ -111,10 +150,10 @@ Results appear in `validation.json` under the `quality` field per entry.
 ## Testing
 
 ```bash
-python -m pytest tests/ -v  # 284 tests, ~10 seconds, no GPU needed
+python -m pytest tests/ -v  # 485 tests, ~13 seconds, no GPU needed
 ```
 
-Covers: audio_utils, voice_settings, hallucination detection, validation reports, add_realism (filter graphs, breaths, backchannels), trim_silences, full pipeline chain, write_script (ingestion, LLM passes, pronunciation, review, CLI), mix_episode (LUFS, crossfade, ducking, mastering), master (Pedalboard DSP chain), publish (chapters, SRT transcript, show notes), prosody_selector (emotion mapping, fallback logic).
+Covers: audio_utils, voice_settings, hallucination detection, validation reports, add_realism (filter graphs, breaths, backchannels), trim_silences, full pipeline chain, write_script (ingestion, LLM passes, pronunciation, review, CLI), mix_episode (LUFS, crossfade, ducking, sting, music bleed, validation gate, mastering), clean_audio (click detection/repair, silence trim, fades), tts_overrides (override loading, segment assembly, validation), mix_preprocess (room reverb, speaker volume, RMS normalize), assemble_intro (multi-speaker intro assembly), generate_backchannels (library management), place_backchannels (sparse placement rules), analyze_voice (F0/centroid register analysis), export_stems (per-speaker DAW stems), master (Pedalboard DSP chain), publish (chapters, SRT transcript, show notes), prosody_selector (emotion mapping, fallback logic).
 
 ## Voice Library (100% Synthetic, 30 voices)
 
@@ -217,7 +256,7 @@ Use different engines for different voices based on blind test results:
 ## Full Pipeline
 
 ```
-Write script → Generate audio → Validate (ASR) → Trim silences → Add realism → Mix episode → Publish → Done
+Write script → Generate TTS (with overrides) → Clean audio (clicks, trim, fades) → Validate (ASR + MOS) → Trim silences → Pre-process (reverb, volume) → Assemble intro → Add realism → Mix episode (sting, music bed, backchannels) → Master → Publish → Done
 ```
 
 ### write_script.py (source material → dialogue script)
@@ -238,10 +277,16 @@ Per-podcast character definitions go in `podcasts/<project>/characters/` — def
 ## Post-Processing Pipeline
 
 ```
-Generate → Validate (ASR) → Trim silences → Add realism → Mix episode (level + intro/outro + music bed + master) → Publish (chapters + transcript + show notes)
+Generate (with overrides) → Clean (clicks + trim + fades) → Validate (ASR + MOS) → Trim silences → Pre-process (reverb + volume) → Assemble intro → Add realism → Mix episode (sting + music bed + backchannels + level + master) → Publish (chapters + transcript + show notes)
 ```
 
-Validation runs automatically after generation. Each output directory gets a `validation.json` with per-line ASR results. Flagged lines should be re-generated before proceeding. Use `--revalidate-flagged` to only re-check previously failed lines.
+**Clean audio** (`clean_audio.py`): Runs on individual WAVs after TTS. Detects and repairs clicks (sample-to-sample jumps >0.15), trims leading/trailing silence, applies 8ms fade-in/out for zero crossings. Uses numpy/soundfile, not ffmpeg.
+
+**TTS overrides** (`tts_overrides.py`): Long/complex lines can be split into segments with controlled pauses. Override JSON format: `{"overrides": {"015": [{"text": "segment", "pause_after": 0.3}]}}`. Engine-agnostic — works with Qwen, Chatterbox, any per-line TTS.
+
+**Pre-process** (`mix_preprocess.py`): Room reverb (synthetic IR, mix=0.02 — barely audible, glues spliced lines), per-speaker volume adjustment (dB), RMS normalization. Runs on individual WAVs before concat.
+
+**Validation gate**: `mix_episode.py --require-validation` refuses to mix if validation.json has failures. Validation runs automatically after generation. Each output directory gets a `validation.json` with per-line ASR results. Flagged lines should be re-generated before proceeding. Use `--revalidate-flagged` to only re-check previously failed lines.
 
 ### add_realism.py (after trim_silences, before mixing)
 

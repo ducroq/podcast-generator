@@ -3,9 +3,12 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from validate_tts import (
     normalize_text, check_hallucination, build_report, save_report,
-    load_report, WORD_DURATION,
+    load_report, WORD_DURATION, MAX_SECONDS_PER_WORD,
+    DURATION_ANOMALY_MULTIPLIER, calibrate_word_duration, get_max_duration,
 )
 
 
@@ -104,6 +107,56 @@ class TestWordDuration:
 
     def test_german_slower_than_english(self):
         assert WORD_DURATION["de"] > WORD_DURATION["en"]
+
+
+class TestDurationAnomaly:
+    def test_max_seconds_per_word_exists(self):
+        assert MAX_SECONDS_PER_WORD == 0.8
+
+    def test_47_words_max_duration(self):
+        """47 words at 0.8s/word = max 37.6s. A 666s file must be flagged."""
+        max_dur = 47 * MAX_SECONDS_PER_WORD
+        assert max_dur < 40  # well under 666s
+        assert 666 > max_dur  # runaway generation caught
+
+    def test_short_line_max_duration(self):
+        """5 words at 0.8s/word = max 4s. Reasonable for 'Wait... both?'"""
+        max_dur = 5 * MAX_SECONDS_PER_WORD
+        assert max_dur == 4.0
+
+
+class TestCalibration:
+    def test_calibrate_returns_seconds_per_word(self, tmp_path):
+        """A 5s ref with 10 words = 0.5s/word."""
+        from unittest.mock import patch
+        with patch("validate_tts.get_duration", return_value=5.0):
+            spw = calibrate_word_duration(
+                str(tmp_path / "ref.wav"),
+                "one two three four five six seven eight nine ten",
+            )
+            assert spw == pytest.approx(0.5, abs=0.01)
+
+    def test_calibrate_short_text_returns_none(self, tmp_path):
+        from unittest.mock import patch
+        with patch("validate_tts.get_duration", return_value=1.0):
+            spw = calibrate_word_duration(str(tmp_path / "ref.wav"), "hi")
+            assert spw is None
+
+    def test_get_max_duration_with_calibration(self):
+        # 50 words, calibrated 0.4s/word, 2.5x margin = 50s
+        max_dur = get_max_duration(50, calibrated_spw=0.4)
+        assert max_dur == pytest.approx(50.0)
+
+    def test_get_max_duration_fallback(self):
+        # 50 words, no calibration → 50 * 0.8 = 40s
+        max_dur = get_max_duration(50)
+        assert max_dur == pytest.approx(40.0)
+
+    def test_calibrated_is_tighter_than_fallback(self):
+        """A fast speaker (0.3s/word) gets a tighter ceiling than the default."""
+        cal = get_max_duration(50, calibrated_spw=0.3)
+        default = get_max_duration(50)
+        assert cal < default
 
 
 class TestBuildReport:

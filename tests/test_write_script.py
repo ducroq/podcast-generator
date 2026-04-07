@@ -19,6 +19,7 @@ from generator.write_script import (
     pass_draft,
     pass_director,
     pass_pronunciation,
+    pass_segment,
     pass_review,
     pass_revise,
     format_review_summary,
@@ -29,6 +30,7 @@ from generator.write_script import (
     DRAFT_SYSTEM,
     DIRECTOR_SYSTEM,
     PRONUNCIATION_SYSTEM,
+    SEGMENT_SYSTEM,
     REVIEW_FIDELITY_SYSTEM,
     REVIEW_LISTENER_SYSTEM,
     REVIEW_NARRATIVE_SYSTEM,
@@ -471,6 +473,51 @@ class TestFormatReviewSummary:
         review = {"fidelity": {}, "listener": {}, "narrative": {}}
         summary = format_review_summary(review)
         assert "SOURCE FIDELITY" in summary
+
+
+class TestPassSegment:
+    def test_returns_segments_on_valid_json(self):
+        segments_json = json.dumps([
+            {"text": "First part.", "pause_after": 0.3},
+            {"text": "Second part.", "pause_after": 0.0},
+        ])
+        client = make_mock_client(segments_json)
+        result = pass_segment(client, "claude-sonnet-4-6", "Some long text here")
+        assert result is not None
+        assert len(result) == 2
+        assert result[0]["text"] == "First part."
+
+    def test_returns_none_on_invalid_json(self):
+        client = make_mock_client("This is not JSON")
+        result = pass_segment(client, "claude-sonnet-4-6", "Some text")
+        assert result is None
+
+    def test_handles_markdown_fenced_json(self):
+        segments_json = '```json\n[{"text": "Hi.", "pause_after": 0.0}]\n```'
+        client = make_mock_client(segments_json)
+        result = pass_segment(client, "claude-sonnet-4-6", "Some text")
+        assert result is not None
+        assert len(result) == 1
+
+    def test_segment_system_prompt_exists(self):
+        assert "pause_after" in SEGMENT_SYSTEM
+        assert "TTS" in SEGMENT_SYSTEM
+
+
+class TestSegmentCLI:
+    def test_segment_flag_parses(self):
+        parser = build_parser()
+        args = parser.parse_args(["src.txt", "--cast", "a,b", "--segment"])
+        assert args.segment is True
+        assert args.segment_min_words == 35
+
+    def test_segment_min_words_flag(self):
+        parser = build_parser()
+        args = parser.parse_args([
+            "src.txt", "--cast", "a,b", "--segment",
+            "--segment-min-words", "50",
+        ])
+        assert args.segment_min_words == 50
 
 
 class TestPassRevise:
