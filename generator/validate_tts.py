@@ -31,7 +31,7 @@ def transcribe(audio_path, model_size="base", language="en"):
         "--model", model_size,
         "--language", language,
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
     if result.returncode != 0:
         return None
     return result.stdout.strip()
@@ -258,7 +258,7 @@ def validate_manifest(manifest_path, skip_passed=False):
     """
     manifest_dir = Path(manifest_path).parent
 
-    with open(manifest_path) as f:
+    with open(manifest_path, encoding="utf-8") as f:
         manifest = json.load(f)
 
     # Load previous report if skipping passed entries

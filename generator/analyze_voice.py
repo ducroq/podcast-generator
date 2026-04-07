@@ -36,7 +36,7 @@ def load_audio_mono(path, target_sr=16000):
             "ffmpeg", "-y", "-i", str(path),
             "-ar", str(target_sr), "-ac", "1", "-f", "wav", tmp.name,
         ]
-        result = subprocess.run(cmd, capture_output=True)
+        result = subprocess.run(cmd, capture_output=True, timeout=120)
         if result.returncode != 0:
             raise RuntimeError(f"Failed to load {path}")
         audio, sr = sf.read(tmp.name, dtype="float32")
@@ -87,6 +87,8 @@ def estimate_f0(audio, sr, fmin=50, fmax=500):
         # Voicing threshold
         if peak_val > 0.3:
             lag = min_lag + peak_idx
+            if lag == 0:
+                continue
             f0 = sr / lag
             f0_values.append(f0)
 

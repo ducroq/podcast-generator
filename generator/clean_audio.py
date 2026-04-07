@@ -225,7 +225,7 @@ def clean_directory(directory, threshold=0.15, fade_ms=8, trim=True,
     # Write report
     if not dry_run:
         report_path = directory / "clean_report.json"
-        with open(report_path, "w") as f:
+        with open(report_path, "w", encoding="utf-8") as f:
             json.dump({
                 "total_files": len(results),
                 "total_clicks_repaired": total_clicks,

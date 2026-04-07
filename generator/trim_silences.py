@@ -87,7 +87,7 @@ def trim_silences(input_path, output_path, max_pause=0.35, noise_db=-35,
         print(f"Loudness: -16 LUFS (podcast standard)")
     print(f"Processing...")
 
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
     if result.returncode != 0:
         print(f"ERROR: ffmpeg failed")
         print(result.stderr[-500:])

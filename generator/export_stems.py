@@ -165,7 +165,7 @@ def export_stems(audio_dir, entries, output_dir, sr=24000,
 
     # Generate Audacity LOF file
     lof_path = output_dir / "import.lof"
-    with open(lof_path, "w") as f:
+    with open(lof_path, "w", encoding="utf-8") as f:
         for speaker in speakers:
             filename = f"stem_{_safe_filename(speaker)}.wav"
             f.write(f'file "{filename}" offset 0.0\n')

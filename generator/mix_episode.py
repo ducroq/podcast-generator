@@ -48,7 +48,7 @@ def measure_lufs(input_path: str) -> float:
         "-af", "loudnorm=print_format=json",
         "-f", "null", "-"
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
     if result.returncode != 0:
         raise RuntimeError(f"LUFS measurement failed: {result.stderr[:200]}")
 
@@ -74,7 +74,7 @@ def apply_gain(input_path: str, output_path: str, gain_db: float) -> None:
         "-codec:a", "libmp3lame", "-b:a", "192k",
         str(output_path)
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
     if result.returncode != 0:
         raise RuntimeError(f"Gain adjustment failed: {result.stderr[:200]}")
 
@@ -162,7 +162,7 @@ def concat_files(file_paths: list[str], output_path: str) -> None:
         "-codec:a", "libmp3lame", "-b:a", "192k",
         str(output_path)
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
     list_path.unlink(missing_ok=True)
     if result.returncode != 0:
         raise RuntimeError(f"Concat failed: {result.stderr[:300]}")
@@ -182,7 +182,7 @@ def prepend_with_crossfade(main_path: str, intro_path: str, output_path: str,
         "-codec:a", "libmp3lame", "-b:a", "192k",
         str(output_path)
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
     if result.returncode != 0:
         raise RuntimeError(f"Intro crossfade failed: {result.stderr[:300]}")
 
@@ -197,7 +197,7 @@ def append_with_crossfade(main_path: str, outro_path: str, output_path: str,
         "-codec:a", "libmp3lame", "-b:a", "192k",
         str(output_path)
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
     if result.returncode != 0:
         raise RuntimeError(f"Outro crossfade failed: {result.stderr[:300]}")
 
@@ -245,7 +245,7 @@ def mix_music_bed(speech_path: str, music_path: str, output_path: str,
         "-codec:a", "libmp3lame", "-b:a", "192k",
         str(output_path)
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
     if result.returncode != 0:
         raise RuntimeError(f"Music bed mixing failed: {result.stderr[:300]}")
 
@@ -286,7 +286,7 @@ def crossfade_sting(main_path: str, sting_path: str, output_path: str,
         "-codec:a", "libmp3lame", "-b:a", "192k",
         str(output_path)
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
     if result.returncode != 0:
         raise RuntimeError(f"Sting crossfade failed: {result.stderr[:300]}")
 
@@ -340,7 +340,7 @@ def mix_music_bed_with_bleed(speech_path: str, music_path: str, output_path: str
         "-codec:a", "libmp3lame", "-b:a", "192k",
         str(output_path)
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
     if result.returncode != 0:
         raise RuntimeError(f"Music bed with bleed failed: {result.stderr[:300]}")
 
@@ -367,7 +367,7 @@ def master_peak_limit(input_path: str, output_path: str,
         "-codec:a", "libmp3lame", "-b:a", "192k",
         str(output_path)
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
     if result.returncode != 0:
         raise RuntimeError(f"Peak limiting failed: {result.stderr[:300]}")
 
@@ -386,7 +386,7 @@ def master_loudnorm(input_path: str, output_path: str,
         "-codec:a", "libmp3lame", "-b:a", "192k",
         str(output_path)
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
     if result.returncode != 0:
         raise RuntimeError(f"Loudnorm failed: {result.stderr[:300]}")
 
@@ -543,7 +543,7 @@ def _place_backchannels_step(work_path, bc_dir, manifest_path,
     wav_tmp.close()
     try:
         rc = sp.run(["ffmpeg", "-y", "-i", work_path, "-ar", str(sr), "-ac", "1",
-                     wav_tmp.name], capture_output=True)
+                     wav_tmp.name], capture_output=True, timeout=120)
         if rc.returncode != 0:
             print("Backchannels: ffmpeg decode failed — skipping")
             return
@@ -557,7 +557,7 @@ def _place_backchannels_step(work_path, bc_dir, manifest_path,
         sf_lib.write(wav_tmp.name, audio, file_sr)
         rc = sp.run(["ffmpeg", "-y", "-i", wav_tmp.name,
                      "-codec:a", "libmp3lame", "-b:a", "192k", work_path],
-                    capture_output=True)
+                    capture_output=True, timeout=120)
         if rc.returncode != 0:
             print("Backchannels: ffmpeg encode failed — skipping")
             return

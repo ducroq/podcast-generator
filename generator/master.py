@@ -51,6 +51,8 @@ def measure_lufs(audio: np.ndarray, sample_rate: int) -> float:
         return meter.integrated_loudness(audio)
     else:
         # Rough RMS-based estimate when pyloudnorm is not available
+        if audio.size == 0:
+            return -70.0
         rms = np.sqrt(np.mean(audio ** 2))
         if rms < 1e-10:
             return -70.0
@@ -130,6 +132,8 @@ def master_audio(input_path: str, output_path: str,
     post_chain_lufs = measure_lufs(processed, sample_rate)
 
     # Apply final gain to hit target LUFS
+    if np.isnan(post_chain_lufs) or np.isinf(post_chain_lufs):
+        post_chain_lufs = -70.0
     gain_db = compute_gain_db(post_chain_lufs, target_lufs)
     gain_linear = 10 ** (gain_db / 20.0)
     processed = processed * gain_linear

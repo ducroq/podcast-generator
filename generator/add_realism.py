@@ -528,7 +528,7 @@ def add_realism(input_path, output_path, overlap_chance=0.25,
     ]
 
     print('Processing...')
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
     if result.returncode != 0:
         print(f'ERROR: ffmpeg failed')
         print(result.stderr[-800:])

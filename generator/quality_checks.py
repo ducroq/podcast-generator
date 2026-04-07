@@ -63,8 +63,11 @@ def check_speaker_similarity(audio_path, ref_path):
         embed_ref = encoder.embed_utterance(wav_ref)
         # Cosine similarity
         import numpy as np
-        similarity = float(np.dot(embed_gen, embed_ref) /
-                          (np.linalg.norm(embed_gen) * np.linalg.norm(embed_ref)))
+        norm_product = np.linalg.norm(embed_gen) * np.linalg.norm(embed_ref)
+        if norm_product < 1e-10:
+            similarity = 0.0
+        else:
+            similarity = float(np.dot(embed_gen, embed_ref) / norm_product)
         return {"speaker_similarity": round(similarity, 3)}
     except Exception as e:
         return {"speaker_similarity": None, "similarity_error": str(e)}

@@ -17,7 +17,7 @@ def detect_silences(input_path, noise_db=-35, min_duration=0.3):
         '-af', f'silencedetect=noise={noise_db}dB:d={min_duration}',
         '-f', 'null', '-'
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
 
     # ffmpeg returns 0 even on silencedetect, but check for total failure
     if result.returncode != 0 and 'silencedetect' not in result.stderr:
@@ -47,7 +47,7 @@ def get_duration(input_path):
         '-of', 'default=noprint_wrappers=1:nokey=1',
         str(input_path)
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
     if result.returncode != 0:
         raise RuntimeError(f"ffprobe failed on {input_path}: {result.stderr[:200]}")
     try:
@@ -65,7 +65,7 @@ def get_sample_rate(input_path):
         '-of', 'default=noprint_wrappers=1:nokey=1',
         str(input_path)
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
     if result.returncode != 0:
         raise RuntimeError(f"ffprobe failed on {input_path}: {result.stderr[:200]}")
     try:
