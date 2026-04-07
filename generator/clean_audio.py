@@ -169,7 +169,7 @@ def clean_file(wav_path, threshold=0.15, fade_ms=8, trim=True, dry_run=False):
 
     # 2. Trim silence
     if trim:
-        trimmed_audio = trim_leading_silence(audio if dry_run else audio, sr)
+        trimmed_audio = trim_leading_silence(audio, sr)
         trimmed_audio = trim_trailing_silence(trimmed_audio, sr)
         if not dry_run:
             audio = trimmed_audio

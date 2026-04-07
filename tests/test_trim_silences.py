@@ -38,8 +38,8 @@ class TestTrimSilences:
         # After trimming with max_pause=0.25, no silence should be >= 0.3s
         assert len(remaining) == 0, f"Found {len(remaining)} silences longer than 0.3s after trimming to 0.25s"
 
-    def test_no_silences_returns_false(self, tmp_path):
-        """A continuous tone has no silences — trim should return False."""
+    def test_no_silences_returns_true(self, tmp_path):
+        """A continuous tone has no silences — trim should return True (no-op success)."""
         tone = tmp_path / "tone.wav"
         subprocess.run([
             "ffmpeg", "-y", "-f", "lavfi", "-i",
@@ -48,7 +48,7 @@ class TestTrimSilences:
         ], capture_output=True)
         output = tmp_path / "trimmed.mp3"
         result = trim_silences(tone, output, loudnorm=False)
-        assert result is False
+        assert result is True
 
 
 class TestSilenceClamping:

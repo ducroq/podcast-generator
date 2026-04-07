@@ -22,7 +22,7 @@ def trim_silences(input_path, output_path, max_pause=0.35, noise_db=-35,
 
     if not silences:
         print("No silences detected — nothing to trim.")
-        return False
+        return True
 
     total_duration = get_duration(input_path)
 

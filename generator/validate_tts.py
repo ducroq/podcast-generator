@@ -441,8 +441,11 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # Report available quality checks
-    from quality_checks import get_available_checks
-    available = get_available_checks()
+    try:
+        from quality_checks import get_available_checks
+        available = get_available_checks()
+    except ImportError:
+        available = []
     if available:
         print(f"Quality checks available: {', '.join(available)}")
     else:
