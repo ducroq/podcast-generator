@@ -223,24 +223,36 @@ class TestDryRun:
 
     def test_clean_audio_dry_run(self, work_wav):
         from clean_audio import main
+        mtime_before = work_wav.stat().st_mtime
         main([str(work_wav), "--dry-run"])
+        assert work_wav.stat().st_mtime == mtime_before, "dry-run should not modify file"
 
-    def test_mix_episode_dry_run(self, section_dir):
+    def test_mix_episode_dry_run(self, section_dir, tmp_path):
         from mix_episode import main
-        main([str(section_dir), "--dry-run"])
+        output = tmp_path / "should_not_exist.mp3"
+        main([str(section_dir), "-o", str(output), "--dry-run"])
+        assert not output.exists(), "dry-run should not create output"
 
     def test_add_realism_dry_run(self, tmp_path, tmp_audio_mp3):
+        output = tmp_path / "should_not_exist.mp3"
         result = run_cli("generator/add_realism.py", str(tmp_audio_mp3),
-                         "--dry-run", "--seed", "42")
+                         str(output), "--dry-run", "--seed", "42")
         assert result.returncode == 0, f"stdout: {result.stdout[:300]}\nstderr: {result.stderr[:300]}"
+        assert not output.exists(), "dry-run should not create output"
 
     def test_mix_preprocess_dry_run(self, wav_dir, manifest_file):
         from mix_preprocess import main
+        mtimes = {f.name: f.stat().st_mtime for f in wav_dir.glob("*.wav")}
         main([str(wav_dir), "--manifest", str(manifest_file), "--dry-run"])
+        for f in wav_dir.glob("*.wav"):
+            assert f.stat().st_mtime == mtimes[f.name], \
+                f"dry-run should not modify {f.name}"
 
     def test_publish_dry_run(self, section_dir, script_file):
         from publish import main
         main([str(section_dir), "--script", str(script_file), "--dry-run"])
+        assert not (section_dir / "published").exists(), \
+            "dry-run should not create published directory"
 
 
 class TestHappyPath:
@@ -263,6 +275,7 @@ class TestHappyPath:
         output = tmp_path / "trimmed.mp3"
         result = run_cli("generator/trim_silences.py", str(smoke_wav), str(output))
         assert result.returncode == 0, result.stderr[:300]
+        assert "No silences" in result.stdout
 
     def test_master(self, work_mp3, tmp_path):
         from master import main
@@ -289,10 +302,12 @@ class TestHappyPath:
 
     def test_mix_preprocess(self, wav_dir, manifest_file):
         from mix_preprocess import main
-        sizes_before = {f.name: f.stat().st_size for f in wav_dir.glob("*.wav")}
+        mtimes_before = {f.name: f.stat().st_mtime for f in wav_dir.glob("*.wav")}
         main([str(wav_dir), "--manifest", str(manifest_file)])
         for f in wav_dir.glob("*.wav"):
             assert f.exists()
+            assert f.stat().st_mtime >= mtimes_before[f.name], \
+                f"{f.name} was not modified by preprocess"
 
     def test_assemble_intro(self, wav_dir, tmp_path):
         from assemble_intro import main
@@ -351,6 +366,17 @@ class TestHappyPath:
     def test_generate_backchannels_list(self, bc_dir):
         from generate_backchannels import main
         main(["--list", str(bc_dir)])
+
+    def test_validate_tts_hallucination_check(self):
+        """Exercise the hallucination detection logic directly."""
+        from validate_tts import check_hallucination
+        # Clean transcription — no issues
+        is_ok, issues = check_hallucination("hello world", "hello world")
+        assert is_ok
+        assert not issues
+        # Extra words at start — hallucination
+        is_ok, issues = check_hallucination("hello world", "garbage garbage hello world")
+        assert any("HALLUCINATION_START" in i for i in issues)
 
     def test_prosody_selector_import(self):
         """ProsodySelector can be imported and instantiated with a synthetic manifest."""
@@ -428,6 +454,19 @@ class TestErrorPaths:
         result = run_cli("generator/write_script.py", str(source),
                          "--cast", "solo")
         assert result.returncode != 0
+
+    def test_mix_preprocess_missing_file(self, tmp_path, capsys):
+        """Missing files should print [MISSING] warning, not crash."""
+        from mix_preprocess import main
+        d = tmp_path / "missing_test"
+        d.mkdir()
+        manifest = [{"file": "nonexistent.wav", "speaker": "alex",
+                      "text": "hello", "duration": 0.5}]
+        manifest_path = d / "manifest.json"
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+        main([str(d), "--manifest", str(manifest_path)])
+        captured = capsys.readouterr()
+        assert "MISSING" in captured.out
 
     def test_mix_episode_no_args(self):
         result = run_cli("generator/mix_episode.py")
