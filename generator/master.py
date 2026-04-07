@@ -134,8 +134,11 @@ def master_audio(input_path: str, output_path: str,
     gain_linear = 10 ** (gain_db / 20.0)
     processed = processed * gain_linear
 
-    # Clip to prevent any overs
-    processed = np.clip(processed, -1.0, 1.0)
+    # Re-limit only if gain pushed peaks above -1 dBTP (avoid double-limiting)
+    peak = np.max(np.abs(processed))
+    if peak > 10 ** (-1.0 / 20.0):  # -1 dBTP threshold
+        final_limiter = Pedalboard([Limiter(threshold_db=-1.0)])
+        processed = final_limiter(processed, sample_rate)
 
     # Measure final
     output_lufs = measure_lufs(processed, sample_rate)
@@ -224,6 +227,7 @@ def main(argv: list[str] | None = None) -> None:
         sys.exit("Output path required (-o). Use --analyze for measurement only.")
 
     print(f"Mastering: {args.input}")
+    print("  Applying DSP chain (highpass, compress, gate, limiter)...")
     result = master_audio(
         args.input, args.output,
         target_lufs=args.target_lufs,

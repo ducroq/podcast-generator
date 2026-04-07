@@ -18,6 +18,7 @@ Usage:
 import argparse
 import json
 import os
+import re
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -102,13 +103,16 @@ def ingest_sources(sources: list[str]) -> str:
 def call_llm(client: anthropic.Anthropic, model: str, system: str, user: str,
              max_tokens: int = 8192) -> str:
     """Single Claude API call. Returns the text response."""
-    msg = client.messages.create(
-        model=model,
-        max_tokens=max_tokens,
-        system=system,
-        messages=[{"role": "user", "content": user}],
-    )
-    return msg.content[0].text
+    try:
+        msg = client.messages.create(
+            model=model,
+            max_tokens=max_tokens,
+            system=system,
+            messages=[{"role": "user", "content": user}],
+        )
+        return msg.content[0].text
+    except anthropic.APIError as e:
+        sys.exit(f"Claude API error: {e}")
 
 
 # ---------------------------------------------------------------------------
@@ -156,7 +160,10 @@ def pass_extract(client: anthropic.Anthropic, model: str, source_text: str,
     if text.endswith("```"):
         text = text.rsplit("```", 1)[0]
     text = text.strip()
-    return json.loads(text)
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as e:
+        sys.exit(f"Extract pass returned malformed JSON: {e}\nResponse:\n{text[:500]}")
 
 
 # ---------------------------------------------------------------------------
@@ -603,7 +610,7 @@ def pass_revise(client: anthropic.Anthropic, model: str, script: str,
 # Format validation
 # ---------------------------------------------------------------------------
 
-LINE_PATTERN = __import__("re").compile(
+LINE_PATTERN = re.compile(
     r'^[A-Za-z_]+:\s*\[[\w\s]+\]\s*.+$'
 )
 
@@ -662,7 +669,10 @@ def generate_overrides(client, model, script, min_words=35):
 
     Returns an overrides dict: {"overrides": {"015": [...], ...}}
     """
-    from elevenlabs.src.voice_settings import parse_line
+    try:
+        from elevenlabs.src.voice_settings import parse_line
+    except ImportError:
+        sys.exit("--segment requires elevenlabs module. Run from the repo root or check sys.path.")
 
     overrides = {}
     line_index = 0

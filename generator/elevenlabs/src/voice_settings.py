@@ -81,8 +81,8 @@ def get_voice_settings(speaker, emotion):
     """Get VoiceSettings for speaker and emotion."""
     variants = EMOTIONAL_VARIANTS.get(speaker, {})
     if not variants:
-        import logging
-        logging.warning(f"Unknown speaker '{speaker}' — using default voice settings")
+        import warnings
+        warnings.warn(f"Unknown speaker '{speaker}' — using default voice settings")
     variant = variants.get(emotion, variants.get("default", {"stability": 0.4, "style": 0.4}))
 
     adjusted_stability = max(0.15, variant["stability"] + STABILITY_OFFSET)

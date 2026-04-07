@@ -190,6 +190,8 @@ def build_parser():
 
 def main(argv=None):
     args = build_parser().parse_args(argv)
+    if not Path(args.overrides_file).exists():
+        sys.exit(f"Overrides file not found: {args.overrides_file}")
     overrides = load_overrides(args.overrides_file)
 
     if args.list:

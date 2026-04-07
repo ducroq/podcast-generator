@@ -71,11 +71,16 @@ def check_hallucination(expected_text, transcribed_text):
     # Check for extra words at the end
     if len(transcribed_words) > len(expected_words) + 3:
         last_expected = expected_words[-1] if expected_words else ""
+        # Find the occurrence of last_expected closest to the expected position
         append_start = None
-        for i in range(len(transcribed_words) - 1, -1, -1):
-            if transcribed_words[i] == last_expected:
-                append_start = i + 1
-                break
+        expected_pos = len(expected_words) - 1
+        best_idx = None
+        for i, w in enumerate(transcribed_words):
+            if w == last_expected:
+                if best_idx is None or abs(i - expected_pos) < abs(best_idx - expected_pos):
+                    best_idx = i
+        if best_idx is not None:
+            append_start = best_idx + 1
         if append_start is not None and append_start < len(transcribed_words):
             extra = " ".join(transcribed_words[append_start:])
             issues.append(f"HALLUCINATION_END: extra words at end: \"{extra}\"")
@@ -215,9 +220,12 @@ def validate_single(audio_path, expected_text, language="en", ref_path=None,
     }
 
     # Optional quality checks (gracefully skip if dependencies not installed)
-    from quality_checks import run_quality_checks
+    try:
+        from quality_checks import run_quality_checks
+    except ImportError:
+        run_quality_checks = None
     quality = run_quality_checks(audio_path, ref_path=ref_path,
-                                 expected_language=language)
+                                 expected_language=language) if run_quality_checks else {}
     if quality:
         result["quality"] = quality
         # Flag based on quality thresholds
@@ -259,7 +267,9 @@ def validate_manifest(manifest_path, skip_passed=False):
         report = load_report(manifest_dir)
         if report:
             for r in report.get("results", []):
-                previous[r["file"]] = r
+                # Normalize to resolved absolute path so lookup matches
+                key = str((manifest_dir / r["file"]).resolve())
+                previous[key] = r
 
     results = []
     flagged = 0
@@ -472,7 +482,9 @@ if __name__ == "__main__":
         print(f"\nReport saved: {report_path}")
 
     else:
-        print("Provide either expected_text or --manifest")
+        parser.print_usage()
+        print("\nProvide expected_text as second argument (single file) "
+              "or use --manifest for batch validation.")
         sys.exit(1)
 
     # Exit code: 1 if any flagged

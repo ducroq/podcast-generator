@@ -54,14 +54,16 @@ class TestGetVoiceSettings:
         assert abs(settings.stability - expected_stability) < 0.01
         assert settings.style == default["style"]
 
-    def test_unknown_speaker_falls_back_with_warning(self, caplog):
-        with caplog.at_level(logging.WARNING):
+    def test_unknown_speaker_falls_back_with_warning(self):
+        import warnings
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
             settings = get_voice_settings("unknown_speaker", "excited")
         # Falls back to hardcoded {stability: 0.4, style: 0.4}
         expected_stability = max(0.15, 0.4 + STABILITY_OFFSET)
         assert abs(settings.stability - expected_stability) < 0.01
         assert settings.style == 0.4
-        assert any("Unknown speaker" in r.message for r in caplog.records)
+        assert any("Unknown speaker" in str(warning.message) for warning in w)
 
     def test_stability_never_below_minimum(self):
         """Even with large negative offset, stability should not go below 0.15."""

@@ -6,6 +6,12 @@ import subprocess
 
 def detect_silences(input_path, noise_db=-35, min_duration=0.3):
     """Detect silence regions using ffmpeg silencedetect."""
+    noise_db = float(noise_db)
+    min_duration = float(min_duration)
+    if not (-100 <= noise_db <= 0):
+        raise ValueError(f"noise_db must be between -100 and 0, got {noise_db}")
+    if not (0.01 <= min_duration <= 10.0):
+        raise ValueError(f"min_duration must be between 0.01 and 10.0, got {min_duration}")
     cmd = [
         'ffmpeg', '-i', str(input_path),
         '-af', f'silencedetect=noise={noise_db}dB:d={min_duration}',

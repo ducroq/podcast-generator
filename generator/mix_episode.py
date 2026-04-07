@@ -104,6 +104,7 @@ def level_files(file_paths: list[str], target_lufs: float = -18.0,
                 Path(bak).replace(path)
                 Path(leveled).unlink(missing_ok=True)
                 raise
+            Path(bak).unlink(missing_ok=True)
 
     return results
 
@@ -141,7 +142,7 @@ def find_section_files(directory: str, exclude: str | None = None) -> list[Path]
     # Sort by section index if present, otherwise alphabetically
     def sort_key(f):
         match = re.search(r'_(\d+)_', f.name)
-        return int(match.group(1)) if match else f.name
+        return (0, int(match.group(1))) if match else (1, f.name)
     return sorted(files, key=sort_key)
 
 
@@ -571,6 +572,7 @@ def main(argv: list[str] | None = None) -> None:
     args = build_parser().parse_args(argv)
 
     # --- Find section files (exclude output to avoid picking it up on re-runs) ---
+    print(f"Scanning {args.input_dir}...")
     sections = find_section_files(args.input_dir, exclude=args.output)
     print(f"Found {len(sections)} section(s):")
     for s in sections:
@@ -706,10 +708,10 @@ def main(argv: list[str] | None = None) -> None:
         else:
             Path(work_path).rename(args.output)
 
-    except Exception:
+    except Exception as exc:
         # Clean up any intermediate files on failure
         Path(work_path).unlink(missing_ok=True)
-        raise
+        sys.exit(f"Mix failed: {exc}")
 
     final_dur = get_duration(args.output)
     print(f"\nDone: {args.output} ({final_dur:.1f}s / {final_dur / 60:.1f} min)")

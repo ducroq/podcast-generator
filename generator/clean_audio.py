@@ -79,9 +79,11 @@ def repair_clicks(audio, sr, threshold=0.15):
 
     for idx in click_indices:
         start = max(0, idx - 3)
-        end = min(len(audio) - 1, idx + 4)
+        end = min(len(audio), idx + 4)
+        if end - start < 2:
+            continue
         audio[start:end] = np.linspace(
-            audio[start], audio[min(end, len(audio) - 1)],
+            audio[start], audio[end - 1],
             end - start, dtype=np.float32,
         )
         repaired += 1
@@ -166,9 +168,12 @@ def clean_file(wav_path, threshold=0.15, fade_ms=8, trim=True, dry_run=False):
             report["clicks_repaired"] = n_repaired
 
     # 2. Trim silence
-    if trim and not dry_run:
-        audio = trim_leading_silence(audio, sr)
-        audio = trim_trailing_silence(audio, sr)
+    if trim:
+        trimmed_audio = trim_leading_silence(audio if dry_run else audio, sr)
+        trimmed_audio = trim_trailing_silence(trimmed_audio, sr)
+        if not dry_run:
+            audio = trimmed_audio
+        report["trimmed_ms"] = round((original_len - len(trimmed_audio)) / sr * 1000, 1)
 
     # 3. Apply fades
     if not dry_run:
@@ -176,7 +181,8 @@ def clean_file(wav_path, threshold=0.15, fade_ms=8, trim=True, dry_run=False):
         report["fades_applied"] = True
 
     report["cleaned_duration"] = round(len(audio) / sr, 3)
-    report["trimmed_ms"] = round((original_len - len(audio)) / sr * 1000, 1)
+    if "trimmed_ms" not in report:
+        report["trimmed_ms"] = round((original_len - len(audio)) / sr * 1000, 1)
 
     # Write back
     if not dry_run:

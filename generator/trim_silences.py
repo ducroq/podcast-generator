@@ -37,8 +37,8 @@ def trim_silences(input_path, output_path, max_pause=0.35, noise_db=-35,
 
         # Shortened silence (keep max_pause, clamped to not eat adjacent speech)
         if silence['duration'] > max_pause:
-            keep_start = max(silence['start'], silence['end'] - max_pause)
-            segments.append((keep_start, keep_start + max_pause))
+            # Keep the leading portion (natural room decay after speech ends)
+            segments.append((silence['start'], silence['start'] + max_pause))
         else:
             # Keep short silences as-is
             segments.append((silence['start'], silence['end']))
@@ -122,5 +122,7 @@ if __name__ == '__main__':
     output_file = Path(args.output) if args.output else \
         input_file.with_stem(input_file.stem + '_processed')
 
-    trim_silences(input_file, output_file, max_pause=args.max_pause,
-                  loudnorm=args.loudnorm)
+    ok = trim_silences(input_file, output_file, max_pause=args.max_pause,
+                       loudnorm=args.loudnorm)
+    if ok is False:
+        sys.exit(1)

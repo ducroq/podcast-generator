@@ -174,6 +174,7 @@ def preprocess_directory(directory, manifest, sr=24000,
             continue
 
         if not wav_path.exists():
+            print(f"  [MISSING] {filename} — file not found, skipping")
             results.append({"file": filename, "status": "MISSING"})
             continue
 

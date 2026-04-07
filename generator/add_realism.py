@@ -386,7 +386,7 @@ def build_filter_complex(turns, actions, total_duration, sample_rate,
             # Loop room tone to match duration, mix at low volume
             filters.append(
                 f'[{room_tone_input_idx}:a]aformat=channel_layouts=mono,'
-                f'aloop=loop=-1:size=2e9,'
+                f'aloop=loop=-1:size=2000000000,'
                 f'atrim=duration={output_duration:.6f},'
                 f'volume={room_tone_vol}[roomvol]'
             )
@@ -604,7 +604,7 @@ if __name__ == '__main__':
     output_path = Path(args.output) if args.output else \
         input_path.with_stem(input_path.stem + '_real')
 
-    add_realism(
+    ok = add_realism(
         input_path, output_path,
         overlap_chance=args.overlap_chance,
         overlap_range_ms=parse_range(args.overlap_ms),
@@ -620,3 +620,5 @@ if __name__ == '__main__':
         seed=args.seed,
         dry_run=args.dry_run,
     )
+    if ok is False:
+        sys.exit(1)
