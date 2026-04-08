@@ -1,0 +1,164 @@
+{
+  "_comment": "TTS overrides v2. String = simple replacement. Array = segmented generation with pauses. Line 019 was split (joke + continuation), all indices from old 020 shifted +1.",
+  "overrides": {
+    "015": [
+      {"text": "Morgan was telling me the other day...", "pause_after": 0.3},
+      {"text": "we were getting coffee...", "pause_after": 0.2},
+      {"text": "she said something about the nod. The nod people do in meetings when someone quotes a business book. And I haven't been able to stop noticing it since."}
+    ],
+    "019": [
+      {"text": "So here's what happened to me. My manager...", "pause_after": 0.25},
+      {"text": "nice guy, genuinely trying to help... he handed me four books in two years.", "pause_after": 0.15},
+      {"text": "Good to Great, Lean Startup, Atomic Habits, and one about radical candor.", "pause_after": 0.15},
+      {"text": "Four books. Well, three and a half...", "pause_after": 0.2},
+      {"text": "I think one was a podcast recommendation that turned into a book."}
+    ],
+    "026": [
+      {"text": "We bought Good to Great in bulk.", "pause_after": 0.4},
+      {"text": "Cases of them.", "pause_after": 0.5},
+      {"text": "This was...", "pause_after": 0.3},
+      {"text": "I had been in consulting maybe three years, and someone above me decided it was going to be our framework.", "pause_after": 0.1},
+      {"text": "Every new analyst got a copy. Clients got copies. We quoted it in decks."}
+    ],
+    "028": [
+      {"text": "Like a franchise manual. And here's the thing...", "pause_after": 0.3},
+      {"text": "it worked. I watched junior consultants read it and come back sharper. They had language for things. Level 5 Leadership. The Hedgehog Concept.", "pause_after": 0.15},
+      {"text": "They had a way to think about strategy, not just talk about it.", "pause_after": 0.2},
+      {"text": "And some of them... some of them genuinely got better at their jobs."}
+    ],
+    "031": [
+      {"text": "The problem came later. Jim Collins held up these companies as exemplars. The companies you should study. Circuit City. Fannie Mae.", "pause_after": 0.2},
+      {"text": "Published in two thousand and... oh-one, I think? Doesn't matter.", "pause_after": 0.4},
+      {"text": "Within a decade, both had collapsed."}
+    ],
+    "032": "Wait... both?",
+    "033": [
+      {"text": "Both. Circuit City went bankrupt in two thousand and eight.", "pause_after": 0.2},
+      {"text": "Fannie Mae collapsed the same year... different cause, but same result.", "pause_after": 0.2},
+      {"text": "You remember what happened with Fannie Mae."}
+    ],
+    "034": [
+      {"text": "And nobody told me to go check. Those books were already on the shelf when I showed up.", "pause_after": 0.2},
+      {"text": "My manager quoted them like they were...", "pause_after": 0.3},
+      {"text": "I don't know, settled? Like settled law.", "pause_after": 0.2},
+      {"text": "I had no idea the examples underneath had collapsed. You just... trust the shelf."}
+    ],
+    "037": [
+      {"text": "That's the thing though. Nobody checks. The book doesn't update.", "pause_after": 0.2},
+      {"text": "It's not even about Collins getting it wrong...", "pause_after": 0.2},
+      {"text": "the whole genre has no correction mechanism. The book on your shelf doesn't tell you what happened next."}
+    ],
+    "038": [
+      {"text": "And that's...", "pause_after": 0.3},
+      {"text": "right, but if we're being honest about it, I kept recommending it. Even after.", "pause_after": 0.2},
+      {"text": "Because the frameworks still gave people a way to think about strategy. The case studies were wrong, but the mental models worked.", "pause_after": 0.3},
+      {"text": "Or... not worked. I don't know if worked is the right word. They were useful.", "pause_after": 0.2},
+      {"text": "I couldn't reconcile that."}
+    ],
+    "046": [
+      {"text": "What about you? Morgan's got fifteen years of this.", "pause_after": 0.2},
+      {"text": "But you're... what, three years in?"}
+    ],
+    "048": "Two and a half. I'm the person these books are written for.",
+    "050": [
+      {"text": "Okay. My boss kept scheduling me for all-hands presentations. Quarterly numbers, take questions, walk the room. And I kept dreading it.", "pause_after": 0.2},
+      {"text": "One weekend I'm in the airport and I see Quiet. Susan Cain. The Power of Introverts in a World That Can't Stop Talking.", "pause_after": 0.15},
+      {"text": "I pick it up and I feel...", "pause_after": 0.4},
+      {"text": "this is going to sound..."}
+    ],
+    "055": [
+      {"text": "I didn't know it had a name.", "pause_after": 0.2},
+      {"text": "I just knew that I bought that book because I needed someone with a credential...", "pause_after": 0.2},
+      {"text": "a researcher, a TED talk, something bigger than me...", "pause_after": 0.2},
+      {"text": "to tell me it was okay to be the person who prepares instead of performs."}
+    ],
+    "056": [
+      {"text": "Wait, so...", "pause_after": 0.3},
+      {"text": "did it help?"}
+    ],
+    "057": [
+      {"text": "My Mondays changed. I stopped dreading the presentations.", "pause_after": 0.2},
+      {"text": "Not because I got better at them.", "pause_after": 0.3},
+      {"text": "Because I stopped thinking there was something wrong with me for hating them.", "pause_after": 0.3},
+      {"text": "That was real. That actually happened to me."}
+    ],
+    "059": [
+      {"text": "...was a hook on the cover, a credential on the jacket, an enemy called the extrovert ideal, a...", "pause_after": 0.2},
+      {"text": "I know what it was doing. I figured that out later.", "pause_after": 0.15},
+      {"text": "Doesn't change the fact that my Mondays got better."}
+    ],
+    "063": [
+      {"text": "Can I say something? I'm sitting here listening to both of you and I'm...", "pause_after": 0.3},
+      {"text": "okay this might be obvious, but it's the same shape. Completely different books but something underneath is..."}
+    ],
+    "065": [
+      {"text": "My manager hands me Atomic Habits. And the title does this thing where it...", "pause_after": 0.2},
+      {"text": "forget goals? That surprised me.", "pause_after": 0.15},
+      {"text": "And then I check the back and the guy's got all these...", "pause_after": 0.15},
+      {"text": "and then there's a villain, the old way of doing things, and then a system, and then a promise that I'll become...", "pause_after": 0.5},
+      {"text": "I bought in. I didn't evaluate anything. The shape just felt right."}
+    ],
+    "069": [
+      {"text": "We just...", "pause_after": 0.2},
+      {"text": "think about what we just did.", "pause_after": 0.2},
+      {"text": "Morgan tells a story that... you're hooked, right? She's got the credentials, she's been in the rooms.", "pause_after": 0.15},
+      {"text": "There's a villain... the books that don't update.", "pause_after": 0.15},
+      {"text": "And then I come in and... I basically gave you the permission chapter.", "pause_after": 0.15},
+      {"text": "And Alex just had his transformation moment.", "pause_after": 0.3},
+      {"text": "We just... we just did the whole thing. While talking about it."}
+    ],
+    "072": "But that's not the same thing... we're not selling anything.",
+    "074": [
+      {"text": "I don't know. I genuinely don't know.", "pause_after": 0.3},
+      {"text": "I was just telling you what happened to me.", "pause_after": 0.2},
+      {"text": "But I think... maybe part of this formula is just the shape of how people tell stories about change.", "pause_after": 0.2},
+      {"text": "Any story about I learned something probably has a hook, a turning point.", "pause_after": 0.15},
+      {"text": "So..."}
+    ],
+    "076": [
+      {"text": "Here's the thing though...", "pause_after": 0.3},
+      {"text": "the formula is self-aware. It uses every pattern it exposes.", "pause_after": 0.2},
+      {"text": "The difference is the disclosure.", "pause_after": 0.3},
+      {"text": "And then it asks whether that makes it more honest... or more sophisticated manipulation."}
+    ],
+    "077": "And doesn't answer.",
+    "078": "Can't answer. Not from inside.",
+    "079": [
+      {"text": "So what do we do?", "pause_after": 0.3},
+      {"text": "Throw away all the books?"}
+    ],
+    "080": [
+      {"text": "No.", "pause_after": 0.3},
+      {"text": "I had a guy on my team...", "pause_after": 0.2},
+      {"text": "smart, actually probably the sharpest analyst I've worked with, he ended up at...", "pause_after": 0.2},
+      {"text": "anyway.", "pause_after": 0.15},
+      {"text": "He figured out the formula before anyone else.", "pause_after": 0.15},
+      {"text": "And then he stopped reading anything. Stopped taking frameworks seriously. Stopped learning.", "pause_after": 0.2},
+      {"text": "He could see through everything and it made him useless."}
+    ],
+    "081": "The smug version of the nod.",
+    "082": [
+      {"text": "...Yeah.", "pause_after": 0.2},
+      {"text": "That's exactly what it is."}
+    ],
+    "083": [
+      {"text": "So what's the alternative?", "pause_after": 0.3},
+      {"text": "You refuse to nod because you're above it?"}
+    ],
+    "084": [
+      {"text": "That's just as comfortable.", "pause_after": 0.2},
+      {"text": "It's the middle that's hard.", "pause_after": 0.3},
+      {"text": "Where you see the formula and it still works on you."}
+    ],
+    "085": [
+      {"text": "My manager gave me those books because he genuinely wanted to help me.", "pause_after": 0.2},
+      {"text": "I believe that.", "pause_after": 0.4},
+      {"text": "And the books followed a formula that's designed to make me feel changed whether or not I actually change.", "pause_after": 0.3},
+      {"text": "I believe that too."}
+    ],
+    "086": "...Yeah.",
+    "087": [
+      {"text": "So now what?"}
+    ]
+  }
+}

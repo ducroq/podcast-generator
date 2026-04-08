@@ -1,0 +1,65 @@
+{
+  "_comment": "Pre-scripted backchannel placements. Clips 00-04 = laughs, 05-08 = breaths.",
+  "placements": [
+    {
+      "after_line": 25,
+      "reactor": "zara",
+      "type": "breath",
+      "note": "Morgan's 'We bought Good to Great in bulk' — Zara listening intently"
+    },
+    {
+      "after_line": 30,
+      "reactor": "alex",
+      "type": "breath",
+      "note": "Morgan reveals Circuit City / Fannie Mae collapsed — Alex stunned"
+    },
+    {
+      "after_line": 37,
+      "reactor": "alex",
+      "type": "breath",
+      "note": "Morgan confesses she kept recommending it — Alex processing"
+    },
+    {
+      "after_line": 49,
+      "reactor": "morgan",
+      "type": "breath",
+      "note": "Zara's airport Quiet book story — Morgan recognizes the pattern"
+    },
+    {
+      "after_line": 56,
+      "reactor": "alex",
+      "type": "breath",
+      "note": "Zara's 'My Mondays changed' — Alex moved"
+    },
+    {
+      "after_line": 64,
+      "reactor": "morgan",
+      "type": "breath",
+      "note": "Alex's Atomic Habits recognition — Morgan sees it coming"
+    },
+    {
+      "after_line": 68,
+      "reactor": "alex",
+      "type": "laugh",
+      "note": "Zara's Turn speech ('we just did the whole thing') — Alex laughs"
+    },
+    {
+      "after_line": 73,
+      "reactor": "zara",
+      "type": "breath",
+      "note": "Morgan's 'I genuinely don't know' reflection — Zara processing"
+    },
+    {
+      "after_line": 79,
+      "reactor": "alex",
+      "type": "laugh",
+      "note": "Morgan's 'he could see through everything and it made him useless' — Alex sees the irony"
+    },
+    {
+      "after_line": 83,
+      "reactor": "morgan",
+      "type": "breath",
+      "note": "Zara's 'It's the middle that's hard' — Morgan feels it"
+    }
+  ]
+}
