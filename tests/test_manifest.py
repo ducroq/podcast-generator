@@ -8,6 +8,7 @@ import pytest
 import soundfile as sf
 
 from manifest import (
+    MANIFEST_VERSION,
     content_hash,
     normalize_text,
     parse_script,
@@ -16,7 +17,9 @@ from manifest import (
     load_manifest,
     line_count,
     missing_lines,
+    lines_to_generate,
     section_names,
+    _sanitize_speaker,
 )
 
 
@@ -106,7 +109,7 @@ class TestContentHash:
         assert content_hash("[dry] We've all been that guy.", speaker="morgan") == content_hash("We've all been that guy.", speaker="morgan")
 
     def test_different_speaker_different_hash(self):
-        """Same text, different speaker → different hash."""
+        """Same text, different speaker -> different hash."""
         assert content_hash("Yeah.", speaker="alex") != content_hash("Yeah.", speaker="morgan")
 
     def test_ignores_whitespace(self):
@@ -144,6 +147,23 @@ class TestNormalizeText:
         assert normalize_text("Hello, world! How's it going?") == "hello world hows it going"
 
 
+class TestSanitizeSpeaker:
+    def test_spaces_replaced(self):
+        assert _sanitize_speaker("junior manager") == "junior_manager"
+
+    def test_slashes_replaced(self):
+        assert _sanitize_speaker("speaker/evil") == "speaker_evil"
+
+    def test_dots_replaced(self):
+        assert _sanitize_speaker("..") == "__"
+
+    def test_normal_name_unchanged(self):
+        assert _sanitize_speaker("alex") == "alex"
+
+    def test_uppercase_lowered(self):
+        assert _sanitize_speaker("Alex") == "alex"
+
+
 # ---------------------------------------------------------------------------
 # Script parsing
 # ---------------------------------------------------------------------------
@@ -167,9 +187,7 @@ class TestParseScript:
     def test_emotion_parsed(self, script_file):
         entries = parse_script(script_file)
         lines = [e for e in entries if e["type"] == "line"]
-        # First line has [earnest]
         assert lines[0]["emotion"] == "earnest"
-        # Alex's third line has no emotion
         no_emotion = [l for l in lines if l["text"].startswith("I don't know")]
         assert len(no_emotion) == 1
         assert no_emotion[0]["emotion"] is None
@@ -191,10 +209,8 @@ class TestParseScript:
     def test_section_assigned_to_lines(self, script_file):
         entries = parse_script(script_file)
         lines = [e for e in entries if e["type"] == "line"]
-        # First 3 lines are in COLD OPEN
         assert lines[0]["section"] == "COLD OPEN"
         assert lines[2]["section"] == "COLD OPEN"
-        # Lines after section break are in OPENING
         assert lines[3]["section"] == "OPENING"
 
     def test_react_cues_parsed(self, script_file):
@@ -206,27 +222,131 @@ class TestParseScript:
         assert bcs[1]["reactor"] == "morgan"
         assert bcs[1]["bc_type"] == "laugh"
 
+    def test_react_cue_open_type(self, tmp_path):
+        """Backchannel types beyond laugh/breath are accepted."""
+        script = tmp_path / "bc.txt"
+        script.write_text(
+            "====================\nS\n====================\n\n"
+            "Alex: Hello.\n[react: morgan sigh]\n[react: zara hmm]\n",
+            encoding="utf-8",
+        )
+        entries = parse_script(script)
+        bcs = [e for e in entries if e["type"] == "backchannel"]
+        assert len(bcs) == 2
+        assert bcs[0]["bc_type"] == "sigh"
+        assert bcs[1]["bc_type"] == "hmm"
+
     def test_pauses_parsed(self, script_file):
         entries = parse_script(script_file)
         pauses = [e for e in entries if e["type"] == "pause"]
-        assert len(pauses) == 3  # [Brief pause.], [Silence. Two seconds.], [Beat.]
+        assert len(pauses) == 3
         durations = sorted([p["duration"] for p in pauses])
-        # [Brief pause.] = 0.5, [Beat.] = 0.5, [Silence. Two seconds.] = 2.5
         assert durations == [0.5, 0.5, 2.5]
 
+    def test_structured_pause(self, tmp_path):
+        """[pause: N.N] syntax is parsed."""
+        script = tmp_path / "pause.txt"
+        script.write_text(
+            "====================\nS\n====================\n\n"
+            "Alex: Hello.\n[pause: 1.5]\nMorgan: Hi.\n[pause: 0.3s]\n",
+            encoding="utf-8",
+        )
+        entries = parse_script(script)
+        pauses = [e for e in entries if e["type"] == "pause"]
+        assert len(pauses) == 2
+        assert pauses[0]["duration"] == 1.5
+        assert pauses[1]["duration"] == 0.3
+
     def test_stage_directions_ignored(self, script_file):
-        """Bracketed stage directions that aren't pauses or reacts are skipped."""
         entries = parse_script(script_file)
         types = {e["type"] for e in entries}
         assert types == {"line", "section_break", "backchannel", "pause"}
 
     def test_order_preserved(self, script_file):
-        """Entries are in script order."""
         entries = parse_script(script_file)
-        # First entry is a line (Junior Manager), then pause, then lines,
-        # then section break, then more lines with BCs and pauses interspersed
         assert entries[0]["type"] == "line"
         assert entries[0]["speaker"] == "junior manager"
+
+    def test_nonexistent_file_raises(self, tmp_path):
+        with pytest.raises(FileNotFoundError):
+            parse_script(tmp_path / "does_not_exist.txt")
+
+
+# ---------------------------------------------------------------------------
+# Single-section scripts
+# ---------------------------------------------------------------------------
+
+
+class TestSingleSection:
+    def test_section_names_single_section(self, tmp_path):
+        """Script with one section (no section_break) still reports that section."""
+        script = tmp_path / "single.txt"
+        script.write_text(
+            "====================\nONLY SECTION\n====================\n\n"
+            "Alex: Hello.\nMorgan: Hi.\n",
+            encoding="utf-8",
+        )
+        entries = parse_script(script)
+        manifest = build_manifest(entries)
+        names = section_names(manifest)
+        assert names == ["ONLY SECTION"]
+
+    def test_no_section_at_all(self, tmp_path):
+        """Script without any section header."""
+        script = tmp_path / "nosec.txt"
+        script.write_text("Alex: Hello.\nMorgan: Hi.\n", encoding="utf-8")
+        entries = parse_script(script)
+        manifest = build_manifest(entries)
+        names = section_names(manifest)
+        assert names == []
+
+
+# ---------------------------------------------------------------------------
+# Duplicate line handling
+# ---------------------------------------------------------------------------
+
+
+class TestDuplicateLines:
+    def test_same_speaker_same_text_unique_hashes(self, tmp_path):
+        """Two identical lines from the same speaker get unique hashes."""
+        script = tmp_path / "dupes.txt"
+        script.write_text(
+            "====================\nSECTION\n====================\n\n"
+            "Morgan: ...Yeah.\n\nAlex: Something else.\n\nMorgan: ...Yeah.\n",
+            encoding="utf-8",
+        )
+        entries = parse_script(script)
+        lines = [e for e in entries if e["type"] == "line"]
+        hashes = [l["hash"] for l in lines]
+        assert len(set(hashes)) == 3
+
+    def test_first_occurrence_gets_base_hash(self, tmp_path):
+        """First occurrence gets base hash, second gets hash_2."""
+        script = tmp_path / "dupes.txt"
+        script.write_text(
+            "====================\nSECTION\n====================\n\n"
+            "Morgan: ...Yeah.\n\nMorgan: ...Yeah.\n",
+            encoding="utf-8",
+        )
+        entries = parse_script(script)
+        lines = [e for e in entries if e["type"] == "line"]
+        base = content_hash("...Yeah.", speaker="morgan")
+        assert lines[0]["hash"] == base
+        assert lines[1]["hash"] == f"{base}_2"
+
+    def test_suffix_visible_in_filename(self, tmp_path):
+        """Duplicate hash suffix is visible in the generated filename."""
+        script = tmp_path / "dupes.txt"
+        script.write_text(
+            "====================\nSECTION\n====================\n\n"
+            "Morgan: ...Yeah.\n\nMorgan: ...Yeah.\n",
+            encoding="utf-8",
+        )
+        entries = parse_script(script)
+        manifest = build_manifest(entries)
+        lines = list(manifest["lines"].values())
+        filenames = [l["file"] for l in lines]
+        assert any("_2" in f for f in filenames)
 
 
 # ---------------------------------------------------------------------------
@@ -236,7 +356,6 @@ class TestParseScript:
 
 class TestBuildManifest:
     def test_empty_dir(self, script_file, tmp_path):
-        """No audio files → all lines status 'missing'."""
         entries = parse_script(script_file)
         empty_dir = tmp_path / "empty"
         empty_dir.mkdir()
@@ -244,10 +363,8 @@ class TestBuildManifest:
         assert all(info["status"] == "missing" for info in manifest["lines"].values())
 
     def test_finds_existing(self, script_file, audio_dir_with_files):
-        """Existing content-addressed file → status 'exists'."""
         entries = parse_script(script_file)
         manifest = build_manifest(entries, audio_dir=audio_dir_with_files)
-        # The first line (Junior Manager) has a matching file
         first_line = [e for e in entries if e["type"] == "line"][0]
         h = first_line["hash"]
         assert manifest["lines"][h]["status"] == "exists"
@@ -257,8 +374,19 @@ class TestBuildManifest:
         entries = parse_script(script_file)
         manifest = build_manifest(entries, audio_dir=audio_dir_with_files)
         missing = missing_lines(manifest)
-        # 8 lines total, 1 exists → 7 missing
         assert len(missing) == 7
+
+    def test_lines_to_generate_helper(self, script_file, audio_dir_with_files):
+        entries = parse_script(script_file)
+        manifest = build_manifest(entries, audio_dir=audio_dir_with_files)
+        to_gen = lines_to_generate(manifest)
+        assert len(to_gen) == 7
+        # Each entry has hash, speaker, text, file
+        for entry in to_gen:
+            assert "hash" in entry
+            assert "speaker" in entry
+            assert "text" in entry
+            assert "file" in entry
 
     def test_line_count_helper(self, script_file):
         entries = parse_script(script_file)
@@ -282,7 +410,6 @@ class TestBuildManifest:
             assert lo["hash"] in manifest["lines"]
 
     def test_no_audio_dir(self, script_file):
-        """Building without audio_dir → all missing, no crash."""
         entries = parse_script(script_file)
         manifest = build_manifest(entries, audio_dir=None)
         assert all(info["status"] == "missing" for info in manifest["lines"].values())
@@ -293,13 +420,35 @@ class TestBuildManifest:
         names = section_names(manifest)
         assert names == ["COLD OPEN", "OPENING"]
 
+    def test_meta_block_present(self, script_file):
+        entries = parse_script(script_file)
+        manifest = build_manifest(entries, script_path="test.txt", episode="ep01")
+        assert "meta" in manifest
+        assert manifest["meta"]["version"] == MANIFEST_VERSION
+        assert manifest["meta"]["script"] == "test.txt"
+        assert manifest["meta"]["episode"] == "ep01"
+        assert manifest["meta"]["generated_at"] is not None
+
+    def test_sanitized_filenames(self, tmp_path):
+        """Speaker names with special chars produce safe filenames."""
+        script = tmp_path / "special.txt"
+        script.write_text(
+            "====================\nS\n====================\n\n"
+            "Team Member 1: Hello.\n",
+            encoding="utf-8",
+        )
+        entries = parse_script(script)
+        manifest = build_manifest(entries)
+        line = list(manifest["lines"].values())[0]
+        assert "/" not in line["file"]
+        assert "\\" not in line["file"]
+        assert ".." not in line["file"].split("_")[0]
+
 
 class TestManifestOrderSurvivesReorder:
     def test_reorder_preserves_hashes(self, tmp_path):
-        """Swapping two lines → same hashes, different order."""
         script_v1 = tmp_path / "v1.txt"
         script_v2 = tmp_path / "v2.txt"
-
         script_v1.write_text(
             "====================\nSECTION\n====================\n\n"
             "Alex: First line.\n\nMorgan: Second line.\n",
@@ -310,16 +459,9 @@ class TestManifestOrderSurvivesReorder:
             "Morgan: Second line.\n\nAlex: First line.\n",
             encoding="utf-8",
         )
-
-        entries_v1 = parse_script(script_v1)
-        entries_v2 = parse_script(script_v2)
-        m1 = build_manifest(entries_v1)
-        m2 = build_manifest(entries_v2)
-
-        # Same hashes in lines dict
+        m1 = build_manifest(parse_script(script_v1))
+        m2 = build_manifest(parse_script(script_v2))
         assert set(m1["lines"].keys()) == set(m2["lines"].keys())
-
-        # Different order
         order_v1 = [e["hash"] for e in m1["order"] if e["type"] == "line"]
         order_v2 = [e["hash"] for e in m2["order"] if e["type"] == "line"]
         assert order_v1 != order_v2
@@ -331,60 +473,38 @@ class TestManifestOrderSurvivesReorder:
 # ---------------------------------------------------------------------------
 
 
-class TestDuplicateLines:
-    def test_same_speaker_same_text_unique_hashes(self, tmp_path):
-        """Two identical lines from the same speaker get unique hashes."""
-        script = tmp_path / "dupes.txt"
-        script.write_text(
-            "====================\nSECTION\n====================\n\n"
-            "Morgan: ...Yeah.\n\nAlex: Something else.\n\nMorgan: ...Yeah.\n",
-            encoding="utf-8",
-        )
-        entries = parse_script(script)
-        lines = [e for e in entries if e["type"] == "line"]
-        hashes = [l["hash"] for l in lines]
-        # All 3 hashes should be unique
-        assert len(set(hashes)) == 3
-
-    def test_first_occurrence_gets_base_hash(self, tmp_path):
-        """First occurrence of a line gets the base hash (no suffix)."""
-        script = tmp_path / "dupes.txt"
-        script.write_text(
-            "====================\nSECTION\n====================\n\n"
-            "Morgan: ...Yeah.\n\nMorgan: ...Yeah.\n",
-            encoding="utf-8",
-        )
-        entries = parse_script(script)
-        lines = [e for e in entries if e["type"] == "line"]
-        # First occurrence should match base hash
-        base = content_hash("...Yeah.", speaker="morgan")
-        assert lines[0]["hash"] == base
-        # Second should be different
-        assert lines[1]["hash"] != base
-
-
 class TestManifestIO:
     def test_roundtrip(self, script_file, tmp_path):
-        """Write manifest to JSON, read back, identical."""
         entries = parse_script(script_file)
         manifest = build_manifest(entries)
-
         path = tmp_path / "manifest.json"
         save_manifest(manifest, path)
         loaded = load_manifest(path)
-
         assert loaded["lines"] == manifest["lines"]
         assert loaded["order"] == manifest["order"]
+        assert loaded["meta"]["version"] == MANIFEST_VERSION
 
     def test_json_valid(self, script_file, tmp_path):
-        """Output is valid JSON."""
         entries = parse_script(script_file)
         manifest = build_manifest(entries)
-
         path = tmp_path / "manifest.json"
         save_manifest(manifest, path)
-
         with open(path) as f:
             data = json.load(f)
         assert "lines" in data
         assert "order" in data
+        assert "meta" in data
+
+    def test_load_invalid_format_raises(self, tmp_path):
+        """Loading a non-manifest JSON raises ValueError."""
+        path = tmp_path / "bad.json"
+        path.write_text('{"foo": "bar"}', encoding="utf-8")
+        with pytest.raises(ValueError, match="Invalid manifest format"):
+            load_manifest(path)
+
+    def test_load_legacy_list_raises(self, tmp_path):
+        """Loading old flat-list manifest raises ValueError."""
+        path = tmp_path / "legacy.json"
+        path.write_text('[{"file": "test.wav"}]', encoding="utf-8")
+        with pytest.raises(ValueError, match="Invalid manifest format"):
+            load_manifest(path)

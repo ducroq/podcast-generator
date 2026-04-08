@@ -1,9 +1,13 @@
 """Content-addressed manifest for podcast TTS pipeline.
 
 Parses podcast scripts into a manifest where each line is identified by a
-content hash (first 8 chars of SHA-256 of normalized text). This decouples
-file naming from line order — reordering lines in the script does not
-invalidate existing TTS audio files.
+content hash (first 8 chars of SHA-256 of normalized text + speaker). This
+decouples file naming from line order — reordering lines in the script does
+not invalidate existing TTS audio files.
+
+Corpus-size assumption: designed for podcasts with up to ~1000 lines per
+series. At 8 hex chars (32 bits), collision probability is negligible for
+this scale. For larger corpora, increase the `length` parameter.
 
 Usage:
     from manifest import parse_script, build_manifest, content_hash
@@ -15,9 +19,21 @@ Usage:
 
 import hashlib
 import json
+import logging
 import re
+from datetime import datetime, timezone
 from pathlib import Path
 
+try:
+    import soundfile as sf
+    _HAS_SOUNDFILE = True
+except ImportError:
+    sf = None
+    _HAS_SOUNDFILE = False
+
+logger = logging.getLogger(__name__)
+
+MANIFEST_VERSION = 1
 
 # ---------------------------------------------------------------------------
 # Content hashing
@@ -26,9 +42,17 @@ from pathlib import Path
 # Regex to strip emotion/direction tags like [excited], [dry], [to Zara]
 _EMOTION_RE = re.compile(r"\[[^\]]*\]")
 
+# Characters allowed in speaker names for filenames
+_SPEAKER_SANITIZE_RE = re.compile(r"[^\w]")
+
 
 def normalize_text(text):
-    """Normalize text for hashing: strip emotions, lowercase, collapse whitespace."""
+    """Normalize text for hashing: strip emotions, lowercase, collapse whitespace.
+
+    Note: punctuation including apostrophes is stripped, so "it's" and "its"
+    normalize identically. This is intentional — TTS output for both is the
+    same audio.
+    """
     text = _EMOTION_RE.sub("", text)
     text = text.lower()
     text = re.sub(r"[^\w\s]", "", text)  # strip punctuation
@@ -46,6 +70,11 @@ def content_hash(text, speaker=None, length=8):
     if speaker:
         normalized = f"{speaker.lower()}:{normalized}"
     return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:length]
+
+
+def _sanitize_speaker(speaker):
+    """Sanitize speaker name for use in filenames: only [a-z0-9_]."""
+    return _SPEAKER_SANITIZE_RE.sub("_", speaker.lower())
 
 
 # ---------------------------------------------------------------------------
@@ -69,81 +98,96 @@ def parse_script(path, beat_pause=DEFAULT_BEAT_PAUSE):
 
     Lines are NOT assigned positional indices. Use the list order as the
     canonical sequence. Each line gets a content hash for file naming.
+
+    Duplicate lines (same speaker, same text) get a stable suffix:
+    first occurrence → base hash, second → base_hash_2, etc. The suffix
+    is visible in the filename for debuggability.
     """
     entries = []
     current_section = None
     # Track hash occurrences to disambiguate identical lines (e.g. two
-    # Morgan "...Yeah." lines). Second occurrence gets hash + "_2", etc.
+    # Morgan "...Yeah." lines). Second occurrence gets hash_2, etc.
     hash_counts = {}
 
-    for raw in open(path, encoding="utf-8"):
-        stripped = raw.strip()
-        if not stripped or stripped.startswith("=" * 10):
-            continue
-
-        # Section headers: all-caps lines like "COLD OPEN", "THE TURN"
-        if re.match(r"^[A-Z][A-Z\s\':,\-]+$", stripped):
-            if current_section is not None:
-                entries.append({
-                    "type": "section_break",
-                    "from_section": current_section,
-                    "to_section": stripped,
-                })
-            current_section = stripped
-            continue
-
-        # Bracketed directives: pauses, backchannels, stage directions
-        if re.match(r"^\[.*\]$", stripped):
-            lower = stripped.lower()
-
-            # Backchannel: [react: speaker type]
-            react_match = re.match(
-                r"^\[react:\s*(\w+)\s+(laugh|breath)\]$", lower,
-            )
-            if react_match:
-                entries.append({
-                    "type": "backchannel",
-                    "reactor": react_match.group(1),
-                    "bc_type": react_match.group(2),
-                })
+    with open(path, encoding="utf-8") as fh:
+        for raw in fh:
+            stripped = raw.strip()
+            if not stripped or stripped.startswith("=" * 10):
                 continue
 
-            # Pause directives
-            if any(w in lower for w in ["pause", "silence", "beat"]):
-                if "two second" in lower or "three second" in lower:
-                    duration = DEFAULT_EXTRA_LONG_PAUSE
-                elif "long" in lower:
-                    duration = DEFAULT_LONG_PAUSE
-                else:
-                    duration = beat_pause
-                entries.append({"type": "pause", "duration": duration})
-            # Other bracketed lines (stage directions) are ignored
-            continue
+            # Section headers: all-caps lines like "COLD OPEN", "THE TURN"
+            if re.match(r"^[A-Z][A-Z\s\':,\-]+$", stripped):
+                if current_section is not None:
+                    entries.append({
+                        "type": "section_break",
+                        "from_section": current_section,
+                        "to_section": stripped,
+                    })
+                current_section = stripped
+                continue
 
-        # Dialogue lines: "Speaker: [emotion] text"
-        match = re.match(r"(.+?):\s*(?:\[([^\]]*)\]\s*)?(.*)", stripped)
-        if match:
-            speaker = match.group(1).strip().lower()
-            emotion = match.group(2).strip() if match.group(2) else None
-            text = match.group(3).strip()
-            if text:
-                base_hash = content_hash(text, speaker=speaker)
-                # Disambiguate duplicates (same speaker, same text)
-                hash_counts[base_hash] = hash_counts.get(base_hash, 0) + 1
-                if hash_counts[base_hash] == 1:
-                    h = base_hash
-                else:
-                    # Append occurrence number to create unique hash
-                    suffix = str(hash_counts[base_hash])
-                    h = content_hash(text + suffix, speaker=speaker)
-                entries.append({
-                    "type": "line",
-                    "speaker": speaker,
-                    "text": text,
-                    "emotion": emotion,
-                    "hash": h,
-                    "section": current_section,
-                })
+            # Bracketed directives: pauses, backchannels, stage directions
+            if re.match(r"^\[.*\]$", stripped):
+                lower = stripped.lower()
+
+                # Backchannel: [react: speaker type]
+                # Open-ended type matching — downstream decides what to do
+                react_match = re.match(
+                    r"^\[react:\s*(\w+)\s+(\w+)\]$", lower,
+                )
+                if react_match:
+                    entries.append({
+                        "type": "backchannel",
+                        "reactor": react_match.group(1),
+                        "bc_type": react_match.group(2),
+                    })
+                    continue
+
+                # Structured pause: [pause: N.N] or [pause: Ns]
+                timed_match = re.match(
+                    r"^\[pause:\s*(\d+(?:\.\d+)?)\s*s?\]$", lower,
+                )
+                if timed_match:
+                    entries.append({
+                        "type": "pause",
+                        "duration": float(timed_match.group(1)),
+                    })
+                    continue
+
+                # Natural language pause directives
+                if any(w in lower for w in ["pause", "silence", "beat"]):
+                    if "two second" in lower or "three second" in lower:
+                        duration = DEFAULT_EXTRA_LONG_PAUSE
+                    elif "long" in lower:
+                        duration = DEFAULT_LONG_PAUSE
+                    else:
+                        duration = beat_pause
+                    entries.append({"type": "pause", "duration": duration})
+                # Other bracketed lines (stage directions) are ignored
+                continue
+
+            # Dialogue lines: "Speaker: [emotion] text"
+            match = re.match(r"(.+?):\s*(?:\[([^\]]*)\]\s*)?(.*)", stripped)
+            if match:
+                speaker = match.group(1).strip().lower()
+                emotion = match.group(2).strip() if match.group(2) else None
+                text = match.group(3).strip()
+                if text:
+                    base_hash = content_hash(text, speaker=speaker)
+                    # Disambiguate duplicates with stable suffix
+                    hash_counts[base_hash] = hash_counts.get(base_hash, 0) + 1
+                    if hash_counts[base_hash] == 1:
+                        h = base_hash
+                    else:
+                        h = f"{base_hash}_{hash_counts[base_hash]}"
+                    entries.append({
+                        "type": "line",
+                        "speaker": speaker,
+                        "text": text,
+                        "emotion": emotion,
+                        "hash": h,
+                        "section": current_section,
+                    })
 
     return entries
 
@@ -155,10 +199,11 @@ def parse_script(path, beat_pause=DEFAULT_BEAT_PAUSE):
 
 def _line_filename(speaker, h):
     """Generate content-addressed filename: speaker_hash.wav"""
-    return f"{speaker.replace(' ', '_')}_{h}.wav"
+    safe_speaker = _sanitize_speaker(speaker)
+    return f"{safe_speaker}_{h}.wav"
 
 
-def build_manifest(entries, audio_dir=None):
+def build_manifest(entries, audio_dir=None, script_path=None, episode=None):
     """Build a manifest from parsed script entries.
 
     Scans `audio_dir` for existing content-addressed audio files and marks
@@ -167,16 +212,31 @@ def build_manifest(entries, audio_dir=None):
 
     Returns:
         {
+            "meta": {version, script, episode, generated_at},
             "lines": {hash: {speaker, text, emotion, file, status, ...}},
             "order": [{"type": ..., "hash": ... or other fields}, ...],
         }
     """
+    meta = {
+        "version": MANIFEST_VERSION,
+        "script": str(script_path) if script_path else None,
+        "episode": episode,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+    }
     lines = {}
     order = []
 
     for entry in entries:
         if entry["type"] == "line":
             h = entry["hash"]
+
+            if h in lines:
+                logger.warning(
+                    "Hash collision: %s already in manifest (speaker=%s, text='%s'). "
+                    "Second entry will overwrite the first.",
+                    h, entry["speaker"], entry["text"][:50],
+                )
+
             filename = _line_filename(entry["speaker"], h)
 
             # Check if audio exists
@@ -184,13 +244,14 @@ def build_manifest(entries, audio_dir=None):
             duration = None
             if audio_dir and (audio_dir / filename).exists():
                 status = "exists"
-                # Try to get duration without importing soundfile at module level
-                try:
-                    import soundfile as sf
-                    info = sf.info(str(audio_dir / filename))
-                    duration = round(info.duration, 2)
-                except Exception:
-                    pass
+                if _HAS_SOUNDFILE:
+                    try:
+                        info = sf.info(str(audio_dir / filename))
+                        duration = round(info.duration, 2)
+                    except Exception as exc:
+                        logger.warning(
+                            "Could not read duration for %s: %s", filename, exc,
+                        )
 
             lines[h] = {
                 "speaker": entry["speaker"],
@@ -224,7 +285,7 @@ def build_manifest(entries, audio_dir=None):
                 "duration": entry["duration"],
             })
 
-    return {"lines": lines, "order": order}
+    return {"meta": meta, "lines": lines, "order": order}
 
 
 # ---------------------------------------------------------------------------
@@ -239,9 +300,18 @@ def save_manifest(manifest, path):
 
 
 def load_manifest(path):
-    """Read manifest from JSON file."""
+    """Read manifest from JSON file.
+
+    Validates that the required top-level keys are present.
+    """
     with open(path, encoding="utf-8") as f:
-        return json.load(f)
+        data = json.load(f)
+    if not isinstance(data, dict) or "lines" not in data or "order" not in data:
+        raise ValueError(
+            f"Invalid manifest format in {path}: "
+            f"expected dict with 'lines' and 'order' keys"
+        )
+    return data
 
 
 # ---------------------------------------------------------------------------
@@ -259,12 +329,31 @@ def missing_lines(manifest):
     return [h for h, info in manifest["lines"].items() if info["status"] == "missing"]
 
 
+def lines_to_generate(manifest):
+    """Return full line dicts (with hash) for all lines needing TTS.
+
+    Each dict includes all fields from the manifest plus the "hash" key,
+    ready to iterate over for TTS generation.
+    """
+    return [
+        {"hash": h, **info}
+        for h, info in manifest["lines"].items()
+        if info["status"] == "missing"
+    ]
+
+
 def section_names(manifest):
-    """Extract ordered list of section names from manifest."""
+    """Extract ordered list of unique section names from manifest.
+
+    Works for both single-section and multi-section scripts by scanning
+    line entries for their section assignments, not just section breaks.
+    """
+    seen = set()
     names = []
     for entry in manifest["order"]:
-        if entry["type"] == "section_break":
-            if not names:
-                names.append(entry["from_section"])
-            names.append(entry["to_section"])
+        if entry["type"] == "line":
+            section = manifest["lines"][entry["hash"]].get("section")
+            if section and section not in seen:
+                seen.add(section)
+                names.append(section)
     return names
