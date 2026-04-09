@@ -25,6 +25,8 @@ from pathlib import Path
 import numpy as np
 import soundfile as sf
 
+from manifest import STATUS_EXISTS, STATUS_FAILED, STATUS_MISSING
+
 logger = logging.getLogger(__name__)
 
 
@@ -50,9 +52,10 @@ def _is_hallucinated(audio, sr, text, max_per_word=0.6):
 # Engine adapters
 # ---------------------------------------------------------------------------
 
-# Each adapter has the signature:
-#   load_engine(device) -> model
-#   generate_line(model, text, voice_ref, ref_text, language, **kwargs) -> (audio, sr)
+# Each adapter implements:
+#   load(**kwargs)  — load the model (device is optional, ignored by API engines)
+#   generate(text, voice_ref, ref_text, language, **kwargs) -> (audio, sr)
+#   unload()        — release resources
 #
 # voice_ref is the absolute path to the reference audio file.
 # Returns (numpy array float32, sample rate).
@@ -66,7 +69,7 @@ class QwenAdapter:
     def __init__(self):
         self.model = None
 
-    def load(self, device="cuda:0"):
+    def load(self, device="cuda:0", **kwargs):
         import torch
         from qwen_tts import Qwen3TTSModel
         logger.info("Loading Qwen3-TTS...")
@@ -106,7 +109,7 @@ class ChatterboxAdapter:
         self.model = None
         self.sr = None
 
-    def load(self, device="cuda:0"):
+    def load(self, device="cuda:0", **kwargs):
         from chatterbox.tts import ChatterboxTTS
         logger.info("Loading Chatterbox...")
         self.model = ChatterboxTTS.from_pretrained(device=device)
@@ -155,6 +158,7 @@ def _generate_with_guard(adapter, text, voice_ref, ref_text, language,
     """Generate TTS with hallucination guard and retry logic.
 
     Returns (audio, sr, attempts) where attempts is the number of tries.
+    audio is None if all retries were exhausted (hallucination).
     """
     temp = tts_config.get("temperature", 0.7)
     rep_penalty = tts_config.get("repetition_penalty", 1.2)
@@ -195,9 +199,17 @@ def _generate_with_guard(adapter, text, voice_ref, ref_text, language,
 
 def _generate_segmented(adapter, segments, voice_ref, ref_text, language,
                         tts_config, retry_config, sr_target=24000):
-    """Generate segmented line (multiple chunks with pauses between)."""
+    """Generate segmented line (multiple chunks with pauses between).
+
+    All segments are resampled to sr_target before concatenation to ensure
+    consistent sample rate across the assembled line.
+
+    Returns (audio, sr_target) or (None, sr_target) if any segment fails.
+    """
+    if not segments:
+        return None, sr_target
+
     parts = []
-    sr = sr_target
     for seg in segments:
         text = seg["text"]
         audio, seg_sr, _ = _generate_with_guard(
@@ -205,13 +217,15 @@ def _generate_segmented(adapter, segments, voice_ref, ref_text, language,
             tts_config, retry_config,
         )
         if audio is None:
-            return None, sr
-        sr = seg_sr
+            return None, sr_target
+        # Resample each segment to target SR before concatenation
+        audio = _resample_if_needed(audio, seg_sr, sr_target)
         parts.append(audio)
         pause = seg.get("pause_after", 0)
         if pause > 0:
-            parts.append(np.zeros(int(sr * pause), dtype=np.float32))
-    return np.concatenate(parts) if parts else None, sr
+            parts.append(np.zeros(int(sr_target * pause), dtype=np.float32))
+
+    return np.concatenate(parts), sr_target
 
 
 def _resample_if_needed(audio, sr, target_sr):
@@ -223,6 +237,81 @@ def _resample_if_needed(audio, sr, target_sr):
     return resample(audio, new_len).astype(np.float32)
 
 
+def _resolve_engine(h, info, force_fb, cfg):
+    """Determine which engine to use for a line.
+
+    Checks force_fallback first, then per-line override, then cast default.
+    """
+    # Force fallback takes priority
+    if h in force_fb:
+        return force_fb[h]
+    # Per-line override from config.overrides
+    override = cfg.overrides.get(h, {})
+    if isinstance(override, dict) and "engine" in override:
+        return override["engine"]
+    # Cast default
+    return cfg.cast(info["speaker"])["engine"]
+
+
+def _get_line_tts_config(h, cfg, base_tts_config):
+    """Get TTS config for a specific line, applying per-line overrides.
+
+    Per-line overrides (from config.overrides) can set temperature and
+    other TTS parameters that override the episode-level defaults.
+    """
+    override = cfg.overrides.get(h, {})
+    if not isinstance(override, dict):
+        return base_tts_config
+    # Only override keys that are present
+    line_config = dict(base_tts_config)
+    for key in ("temperature", "repetition_penalty"):
+        if key in override:
+            line_config[key] = override[key]
+    return line_config
+
+
+# ---------------------------------------------------------------------------
+# Fallback
+# ---------------------------------------------------------------------------
+
+
+def _try_fallback(info, fallback_chain, cfg, language, tts_config,
+                  retry_config, segments, sr_target):
+    """Try fallback engines for a line that failed on the primary engine.
+
+    Returns (audio, sr, engine_name) or (None, sr_target, None) if all
+    fallbacks are exhausted.
+    """
+    for fb_engine in fallback_chain:
+        logger.info("  Trying fallback engine: %s", fb_engine)
+        fb_adapter = _get_adapter(fb_engine)
+        fb_adapter.load()
+        try:
+            speaker = info["speaker"]
+            voice_ref = cfg.voice_ref_path(speaker)
+            ref_text = cfg.cast(speaker).get("ref_text", "")
+
+            if segments:
+                audio, sr = _generate_segmented(
+                    fb_adapter, segments, voice_ref, ref_text, language,
+                    tts_config, retry_config, sr_target,
+                )
+            else:
+                audio, sr, _ = _generate_with_guard(
+                    fb_adapter, info["text"], voice_ref, ref_text, language,
+                    tts_config, retry_config,
+                )
+
+            if audio is not None:
+                return audio, sr, fb_engine
+        except Exception as exc:
+            logger.warning("  Fallback %s failed: %s", fb_engine, str(exc)[:80])
+        finally:
+            fb_adapter.unload()
+
+    return None, sr_target, None
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -231,8 +320,9 @@ def _resample_if_needed(audio, sr, target_sr):
 def generate_missing(manifest, cfg, dry_run=False):
     """Generate TTS for all missing lines in the manifest.
 
-    Reads engine config from `cfg`, generates audio files into `cfg.tts_dir()`.
-    Updates the manifest in-place with status, duration, and engine info.
+    Reads engine config from ``cfg``, generates audio files into
+    ``cfg.tts_dir()``. Updates the manifest in-place with status, duration,
+    and engine info.
 
     Args:
         manifest: manifest dict from build_manifest()
@@ -252,7 +342,7 @@ def generate_missing(manifest, cfg, dry_run=False):
     retry_config = cfg.tts.get("hallucination", {})
     max_per_word = retry_config.get("max_duration_per_word", 0.6)
 
-    # Build force_fallback lookup: hash → engine
+    # Build force_fallback lookup: hash -> engine
     force_fb = {entry["hash"]: entry["engine"] for entry in cfg.force_fallback}
 
     # Collect lines to generate
@@ -261,7 +351,6 @@ def generate_missing(manifest, cfg, dry_run=False):
         out_path = tts_dir / info["file"]
 
         if out_path.exists():
-            # Validate existing file duration
             existing_dur = sf.info(str(out_path)).duration
             max_dur = estimate_max_duration(info["text"], max_per_word)
             if existing_dur > max_dur:
@@ -271,7 +360,7 @@ def generate_missing(manifest, cfg, dry_run=False):
                 )
                 out_path.unlink()
             else:
-                info["status"] = "exists"
+                info["status"] = STATUS_EXISTS
                 info["duration"] = round(existing_dur, 2)
                 continue
 
@@ -280,7 +369,7 @@ def generate_missing(manifest, cfg, dry_run=False):
     if dry_run:
         for h in to_generate:
             info = lines[h]
-            engine = force_fb.get(h, cfg.cast(info["speaker"])["engine"])
+            engine = _resolve_engine(h, info, force_fb, cfg)
             logger.info(
                 "DRY RUN: would generate %s (%s, engine=%s): %s",
                 info["file"], info["speaker"], engine, info["text"][:50],
@@ -298,12 +387,12 @@ def generate_missing(manifest, cfg, dry_run=False):
     engine_groups = {}
     for h in to_generate:
         info = lines[h]
-        speaker = info["speaker"]
-        engine = force_fb.get(h, cfg.cast(speaker)["engine"])
+        engine = _resolve_engine(h, info, force_fb, cfg)
         engine_groups.setdefault(engine, []).append(h)
 
     generated = 0
     failed = 0
+    progress = 0
 
     for engine_name, hashes in engine_groups.items():
         adapter = _get_adapter(engine_name)
@@ -311,6 +400,7 @@ def generate_missing(manifest, cfg, dry_run=False):
 
         try:
             for h in hashes:
+                progress += 1
                 info = lines[h]
                 speaker = info["speaker"]
                 cast_info = cfg.cast(speaker)
@@ -318,13 +408,14 @@ def generate_missing(manifest, cfg, dry_run=False):
                 ref_text = cast_info.get("ref_text", "")
                 out_path = tts_dir / info["file"]
 
-                # Check for overrides (segmented generation)
+                # Check for overrides (segmented generation, per-line config)
                 override = cfg.overrides.get(h, {})
                 segments = override.get("segments") if isinstance(override, dict) else None
+                line_tts_config = _get_line_tts_config(h, cfg, tts_config)
 
                 logger.info(
                     "[%d/%d] %s: %s",
-                    generated + failed + 1, len(to_generate),
+                    progress, len(to_generate),
                     speaker, info["text"][:55],
                 )
 
@@ -332,42 +423,43 @@ def generate_missing(manifest, cfg, dry_run=False):
                     if segments:
                         audio, sr = _generate_segmented(
                             adapter, segments, voice_ref, ref_text, language,
-                            tts_config, retry_config, target_sr,
+                            line_tts_config, retry_config, target_sr,
                         )
                     else:
                         audio, sr, _ = _generate_with_guard(
                             adapter, info["text"], voice_ref, ref_text, language,
-                            tts_config, retry_config,
+                            line_tts_config, retry_config,
                         )
 
+                    used_engine = engine_name
                     if audio is None:
                         # Primary engine failed — try fallback
                         fallback_chain = cast_info.get("fallback", [])
-                        audio = _try_fallback(
-                            h, info, fallback_chain, cfg, language,
-                            tts_config, retry_config, segments,
+                        audio, sr, fb_engine = _try_fallback(
+                            info, fallback_chain, cfg, language,
+                            line_tts_config, retry_config, segments, target_sr,
                         )
+                        if fb_engine is not None:
+                            used_engine = fb_engine
 
                     if audio is not None:
                         audio = _resample_if_needed(audio, sr, target_sr)
                         sf.write(str(out_path), audio, target_sr)
                         duration = len(audio) / target_sr
-                        info["status"] = "exists"
+                        info["status"] = STATUS_EXISTS
                         info["duration"] = round(duration, 2)
-                        # Engine is set by _try_fallback if fallback was used,
-                        # otherwise use the primary engine
-                        if info.get("engine") is None:
-                            info["engine"] = engine_name
+                        info["engine"] = used_engine
                         generated += 1
                         logger.info("  -> %s (%.1fs, %s)", info["file"], duration, info["engine"])
                     else:
-                        info["status"] = "failed"
+                        info["status"] = STATUS_FAILED
                         info["engine"] = None
                         failed += 1
                         logger.error("  FAILED: %s (all engines exhausted)", info["file"])
 
                 except Exception as exc:
-                    info["status"] = "failed"
+                    info["status"] = STATUS_FAILED
+                    info["engine"] = None
                     failed += 1
                     logger.error("  ERROR generating %s: %s", info["file"], str(exc)[:80])
         finally:
@@ -379,36 +471,3 @@ def generate_missing(manifest, cfg, dry_run=False):
         generated, skipped, failed, len(lines),
     )
     return {"generated": generated, "skipped": skipped, "failed": failed, "total": len(lines)}
-
-
-def _try_fallback(h, info, fallback_chain, cfg, language, tts_config, retry_config, segments):
-    """Try fallback engines for a line that failed on the primary engine."""
-    for fb_engine in fallback_chain:
-        logger.info("  Trying fallback engine: %s", fb_engine)
-        fb_adapter = _get_adapter(fb_engine)
-        fb_adapter.load()
-        try:
-            speaker = info["speaker"]
-            voice_ref = cfg.voice_ref_path(speaker)
-            ref_text = cfg.cast(speaker).get("ref_text", "")
-
-            if segments:
-                audio, sr = _generate_segmented(
-                    fb_adapter, segments, voice_ref, ref_text, language,
-                    tts_config, retry_config,
-                )
-            else:
-                audio, sr, _ = _generate_with_guard(
-                    fb_adapter, info["text"], voice_ref, ref_text, language,
-                    tts_config, retry_config,
-                )
-
-            if audio is not None:
-                info["engine"] = fb_engine
-                return audio
-        except Exception as exc:
-            logger.warning("  Fallback %s failed: %s", fb_engine, str(exc)[:80])
-        finally:
-            fb_adapter.unload()
-
-    return None

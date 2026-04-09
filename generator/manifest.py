@@ -35,6 +35,11 @@ logger = logging.getLogger(__name__)
 
 MANIFEST_VERSION = 1
 
+# Canonical status values for manifest lines
+STATUS_MISSING = "missing"
+STATUS_EXISTS = "exists"
+STATUS_FAILED = "failed"
+
 # ---------------------------------------------------------------------------
 # Content hashing
 # ---------------------------------------------------------------------------
@@ -245,10 +250,10 @@ def build_manifest(entries, audio_dir=None, script_path=None, episode=None):
             filename = _line_filename(entry["speaker"], h)
 
             # Check if audio exists
-            status = "missing"
+            status = STATUS_MISSING
             duration = None
             if audio_dir and (audio_dir / filename).exists():
-                status = "exists"
+                status = STATUS_EXISTS
                 if _HAS_SOUNDFILE:
                     try:
                         info = sf.info(str(audio_dir / filename))
@@ -331,7 +336,7 @@ def line_count(manifest):
 
 def missing_lines(manifest):
     """Return list of hashes for lines without audio."""
-    return [h for h, info in manifest["lines"].items() if info["status"] == "missing"]
+    return [h for h, info in manifest["lines"].items() if info["status"] == STATUS_MISSING]
 
 
 def lines_to_generate(manifest):
@@ -343,7 +348,7 @@ def lines_to_generate(manifest):
     return [
         {"hash": h, **info}
         for h, info in manifest["lines"].items()
-        if info["status"] == "missing"
+        if info["status"] == STATUS_MISSING
     ]
 
 
