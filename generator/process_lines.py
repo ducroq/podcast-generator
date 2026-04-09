@@ -4,7 +4,8 @@ Reads raw TTS files from tts_dir, applies processing (trim, fade, normalize,
 reverb, click suppression, speaker volume), writes to lines_dir. Raw files
 are never modified — processing always creates new copies.
 
-Also processes backchannel clips with the same fade/click treatment.
+Also processes backchannel clips with the same fade/click treatment, writing
+processed copies to a subdirectory (originals preserved).
 
 Usage:
     from process_lines import process_all
@@ -21,7 +22,7 @@ from pathlib import Path
 
 import numpy as np
 import soundfile as sf
-from scipy.signal import fftconvolve
+from scipy.signal import fftconvolve, resample
 
 from manifest import STATUS_EXISTS
 
@@ -39,8 +40,9 @@ def trim_silence(audio, sr, threshold_db=-35, pre_roll_ms=40):
     window = max(1, int(sr * 0.01))
     abs_audio = np.abs(audio)
     pre_roll = int(sr * pre_roll_ms / 1000)
-    for i in range(0, len(audio) - window, window):
-        if np.max(abs_audio[i:i + window]) > threshold:
+    for i in range(0, len(audio), window):
+        chunk = abs_audio[i:i + window]
+        if len(chunk) > 0 and np.max(chunk) > threshold:
             start = max(0, i - pre_roll)
             return audio[start:]
     return audio
@@ -61,17 +63,27 @@ def apply_speaker_volume(audio, volume_db):
     return audio
 
 
-def generate_room_ir(sr, decay_time=0.3):
-    """Generate a synthetic room impulse response."""
-    num_samples = int(sr * decay_time)
-    ir = np.random.randn(num_samples).astype(np.float32)
+def generate_room_ir(sr, decay_time=0.3, rng=None):
+    """Generate a synthetic room impulse response.
+
+    Args:
+        sr: sample rate
+        decay_time: reverb tail duration in seconds
+        rng: numpy RandomState for deterministic output. Uses global RNG if None.
+    """
+    if rng is None:
+        rng = np.random
+    num_samples = max(1, int(sr * decay_time))
+    ir = rng.randn(num_samples).astype(np.float32)
     decay = np.exp(-np.linspace(0, 6, num_samples)).astype(np.float32)
     ir *= decay
     for delay_ms, gain in [(5, 0.4), (12, 0.25), (20, 0.15), (35, 0.1)]:
         pos = int(sr * delay_ms / 1000)
         if pos < num_samples:
             ir[pos] += gain
-    ir /= np.max(np.abs(ir))
+    peak = np.max(np.abs(ir))
+    if peak > 0:
+        ir /= peak
     return ir
 
 
@@ -89,6 +101,9 @@ def apply_clip_fades(audio, sr, fade_in_ms=35, fade_out_ms=20,
     Fade-in is capped to the leading silence so it never eats into speech.
     Click suppression smooths large sample-to-sample jumps in the first/last
     check region.
+
+    Note: this function modifies the input array in-place for performance.
+    Pass ``audio.copy()`` if you need to preserve the original.
     """
     # Detect where speech starts (first sample above -40 dB)
     speech_thresh = 10 ** (-40 / 20)
@@ -121,10 +136,14 @@ def apply_clip_fades(audio, sr, fade_in_ms=35, fade_out_ms=20,
     return audio
 
 
-def process_one(audio, sr, volume_db, room_ir, processing_cfg):
+def process_one(audio, sr, volume_db, room_ir, processing_cfg, reverb_mix=0.02):
     """Apply the full processing chain to one audio clip.
 
-    Processing order: trim → normalize → speaker volume → reverb → fades.
+    Processing order: trim -> normalize -> speaker volume -> reverb -> fades.
+    Reverb is applied before fades so the reverb tail decays naturally
+    under the fade-out rather than cutting off abruptly.
+
+    Note: modifies ``audio`` in-place. Pass a copy if you need the original.
     """
     p = processing_cfg
     audio = trim_silence(
@@ -134,7 +153,7 @@ def process_one(audio, sr, volume_db, room_ir, processing_cfg):
     )
     audio = rms_normalize(audio, target_rms=p.get("rms_target", 0.1))
     audio = apply_speaker_volume(audio, volume_db)
-    audio = apply_reverb(audio, room_ir, mix=p.get("reverb_mix", 0.02))
+    audio = apply_reverb(audio, room_ir, mix=reverb_mix)
     audio = apply_clip_fades(
         audio, sr,
         fade_in_ms=p.get("fade_in_ms", 35),
@@ -152,7 +171,7 @@ def process_one(audio, sr, volume_db, room_ir, processing_cfg):
 
 
 def process_all(manifest, cfg):
-    """Process all lines from tts_dir → lines_dir.
+    """Process all lines from tts_dir -> lines_dir.
 
     Reads raw TTS files, applies processing chain, writes to lines_dir.
     Also processes backchannel clips. Raw files in tts_dir are never modified.
@@ -162,7 +181,7 @@ def process_all(manifest, cfg):
         cfg: EpisodeConfig instance
 
     Returns:
-        dict with counts: {processed, skipped, total}
+        dict with counts: {processed, skipped, total, backchannels}
     """
     tts_dir = cfg.tts_dir()
     lines_dir = cfg.lines_dir()
@@ -171,10 +190,11 @@ def process_all(manifest, cfg):
     target_sr = cfg.mix.get("target_sr", 24000)
     processing_cfg = cfg.processing
     reverb_decay = cfg.mix.get("reverb_decay", 0.15)
+    reverb_mix = cfg.mix.get("reverb_mix", 0.02)
 
     # Generate room IR (deterministic with fixed seed for consistency)
     rng = np.random.RandomState(42)
-    room_ir = _generate_room_ir_seeded(target_sr, reverb_decay, rng)
+    room_ir = generate_room_ir(target_sr, reverb_decay, rng=rng)
 
     lines = manifest["lines"]
     processed = 0
@@ -201,7 +221,6 @@ def process_all(manifest, cfg):
         if audio.ndim > 1:
             audio = audio.mean(axis=1)
         if file_sr != target_sr:
-            from scipy.signal import resample
             audio = resample(audio, int(len(audio) * target_sr / file_sr)).astype(np.float32)
 
         # Get speaker volume from config
@@ -209,9 +228,11 @@ def process_all(manifest, cfg):
         try:
             volume_db = cfg.cast(speaker).get("volume_db", 0.0)
         except KeyError:
+            logger.warning("Unknown speaker '%s', using volume_db=0.0", speaker)
             volume_db = 0.0
 
-        audio = process_one(audio, target_sr, volume_db, room_ir, processing_cfg)
+        audio = process_one(audio, target_sr, volume_db, room_ir,
+                            processing_cfg, reverb_mix=reverb_mix)
 
         sf.write(str(dst), audio, target_sr)
         processed += 1
@@ -223,47 +244,42 @@ def process_all(manifest, cfg):
                 processed, skipped, len(lines))
 
     # Process backchannel clips
-    bc_processed = _process_backchannels(cfg, target_sr, processing_cfg, room_ir)
+    bc_processed = _process_backchannels(cfg, target_sr, processing_cfg)
 
     return {"processed": processed, "skipped": skipped,
             "total": len(lines), "backchannels": bc_processed}
 
 
-def _generate_room_ir_seeded(sr, decay_time, rng):
-    """Generate room IR with a seeded RNG for deterministic output."""
-    num_samples = int(sr * decay_time)
-    ir = rng.randn(num_samples).astype(np.float32)
-    decay = np.exp(-np.linspace(0, 6, num_samples)).astype(np.float32)
-    ir *= decay
-    for delay_ms, gain in [(5, 0.4), (12, 0.25), (20, 0.15), (35, 0.1)]:
-        pos = int(sr * delay_ms / 1000)
-        if pos < num_samples:
-            ir[pos] += gain
-    ir /= np.max(np.abs(ir))
-    return ir
-
-
-def _process_backchannels(cfg, target_sr, processing_cfg, room_ir):
+def _process_backchannels(cfg, target_sr, processing_cfg):
     """Process backchannel clips: apply fades and click suppression.
 
     BC clips get lighter processing than dialogue lines — no reverb or
     RMS normalization, just fades and click suppression.
+
+    Processed clips are written to a 'processed' subdirectory inside
+    backchannels_dir. Source clips are never modified.
     """
     bc_dir = cfg.backchannels_dir()
     if not bc_dir.exists():
         return 0
 
+    out_dir = bc_dir / "processed"
+    out_dir.mkdir(parents=True, exist_ok=True)
+
     processed = 0
     for speaker in cfg.cast_names():
         for clip_info in cfg.backchannel_clips(speaker):
             src_path = Path(clip_info["file"])
+            dst_path = out_dir / src_path.name
+
             if not src_path.exists():
                 continue
 
-            # Check if already processed (same file, same location)
+            if dst_path.exists():
+                continue  # already processed
+
             audio, file_sr = sf.read(str(src_path), dtype="float32")
             if file_sr != target_sr:
-                from scipy.signal import resample
                 audio = resample(audio, int(len(audio) * target_sr / file_sr)).astype(np.float32)
 
             audio = apply_clip_fades(
@@ -275,9 +291,9 @@ def _process_backchannels(cfg, target_sr, processing_cfg, room_ir):
                 click_smooth_samples=processing_cfg.get("click_smooth_samples", 7),
             )
 
-            sf.write(str(src_path), audio, target_sr)
+            sf.write(str(dst_path), audio, target_sr)
             processed += 1
 
     if processed:
-        logger.info("Backchannels: %d clips processed", processed)
+        logger.info("Backchannels: %d clips processed -> %s", processed, out_dir)
     return processed

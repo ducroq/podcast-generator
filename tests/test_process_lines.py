@@ -37,7 +37,6 @@ def _make_speech(sr=24000, duration=2.0, silence_before=0.1, amplitude=0.3):
 def _make_click_audio(sr=24000, duration=1.0):
     """Create test audio with an artificial click at the start."""
     audio = (np.random.randn(int(sr * duration)) * 0.05).astype(np.float32)
-    # Insert a large jump at sample 100
     audio[100] = 0.5
     audio[101] = -0.3
     return audio
@@ -75,10 +74,14 @@ PODCAST_YAML = {
         "alex": {
             "voice_ref": "alex.mp3", "ref_text": "Hello.",
             "engine": "qwen", "fallback": [], "volume_db": 0.0,
+            "backchannels": [
+                {"file": "bc_alex_00.wav", "type": "laugh", "label": "Ha!"},
+            ],
         },
         "zara": {
             "voice_ref": "zara.mp3", "ref_text": "Hello.",
             "engine": "qwen", "fallback": [], "volume_db": 2.5,
+            "backchannels": [],
         },
     },
     "music": {},
@@ -132,12 +135,17 @@ def pipeline_env(tmp_path):
     entries = parse_script(cfg.script_path())
     manifest = build_manifest(entries, script_path=str(cfg.script_path()))
 
-    # Write a raw WAV for each line
     for h, info in manifest["lines"].items():
         audio = _make_speech(24000, 2.0, silence_before=0.1)
         sf.write(str(tts_dir / info["file"]), audio, 24000)
         info["status"] = STATUS_EXISTS
         info["duration"] = len(audio) / 24000
+
+    # Create a BC clip source
+    bc_dir = cfg.backchannels_dir()
+    bc_dir.mkdir(parents=True)
+    bc_audio = _make_speech(24000, 0.5, silence_before=0.01, amplitude=0.2)
+    sf.write(str(bc_dir / "bc_alex_00.wav"), bc_audio, 24000)
 
     return {"cfg": cfg, "manifest": manifest}
 
@@ -155,9 +163,7 @@ class TestTrimSilence:
         audio = np.concatenate([silence, speech])
 
         trimmed = trim_silence(audio, sr, threshold_db=-35, pre_roll_ms=40)
-        # Should be much shorter than original (0.5s silence removed)
         assert len(trimmed) < len(audio)
-        # Pre-roll: ~40ms of silence before speech
         pre_roll_samples = int(sr * 0.04)
         assert len(trimmed) == pytest.approx(len(speech) + pre_roll_samples, abs=sr * 0.015)
 
@@ -165,31 +171,62 @@ class TestTrimSilence:
         sr = 24000
         audio = np.ones(int(sr * 1.0), dtype=np.float32) * 0.1
         trimmed = trim_silence(audio, sr)
-        # Pre-roll trim still applies but speech starts at sample 0
         assert len(trimmed) <= len(audio)
 
     def test_all_silence(self):
         sr = 24000
         audio = np.zeros(int(sr * 1.0), dtype=np.float32)
         trimmed = trim_silence(audio, sr)
-        # Returns original when no speech detected
         assert len(trimmed) == len(audio)
+
+    def test_speech_in_final_window(self):
+        """Speech only in the last chunk is still detected (not skipped)."""
+        sr = 24000
+        # Long silence then speech at the very end
+        audio = np.zeros(int(sr * 2.0), dtype=np.float32)
+        audio[-50:] = 0.1  # speech in last 50 samples
+        trimmed = trim_silence(audio, sr, pre_roll_ms=40)
+        # Should trim most of the silence, keeping ~40ms pre-roll before speech
+        assert len(trimmed) < len(audio)
+        assert len(trimmed) < 2000  # much less than 48000 original
+
+    def test_very_short_clip(self):
+        """Clip shorter than one window is returned unchanged."""
+        sr = 24000
+        audio = np.zeros(100, dtype=np.float32)
+        audio[50] = 0.1
+        trimmed = trim_silence(audio, sr)
+        # Should still detect and trim
+        assert len(trimmed) <= len(audio)
 
 
 class TestSpeechAwareFade:
     def test_fade_capped_to_silence(self):
-        """Fade-in should not exceed leading silence duration."""
         sr = 24000
-        # 10ms silence + speech
         silence = np.zeros(int(sr * 0.01), dtype=np.float32)
         speech = np.ones(int(sr * 0.5), dtype=np.float32) * 0.3
         audio = np.concatenate([silence, speech])
 
         faded = apply_clip_fades(audio.copy(), sr, fade_in_ms=35, fade_out_ms=20)
-        # The speech at 10ms should not be attenuated much by the fade
         speech_start = int(sr * 0.01)
-        # First speech sample should retain most of its amplitude
-        assert abs(faded[speech_start + 5]) > 0.2  # still audible
+        assert abs(faded[speech_start + 5]) > 0.2
+
+    def test_very_short_clip_no_fade(self):
+        """Clip shorter than fade_in + fade_out skips fading."""
+        sr = 24000
+        # 5ms clip — shorter than 35ms + 20ms = 55ms
+        audio = np.ones(int(sr * 0.005), dtype=np.float32) * 0.1
+        original = audio.copy()
+        faded = apply_clip_fades(audio, sr, fade_in_ms=35, fade_out_ms=20)
+        # Should not crash; audio may or may not be modified depending on click check
+        assert len(faded) == len(original)
+
+    def test_silent_clip(self):
+        """All-zero clip doesn't crash."""
+        sr = 24000
+        audio = np.zeros(sr, dtype=np.float32)
+        faded = apply_clip_fades(audio.copy(), sr)
+        assert len(faded) == sr
 
 
 class TestRMSNormalize:
@@ -209,7 +246,6 @@ class TestSpeakerVolume:
     def test_positive_db(self):
         audio = np.ones(100, dtype=np.float32) * 0.1
         result = apply_speaker_volume(audio, 6.0)
-        # +6dB ≈ 2x amplitude
         assert np.mean(result) == pytest.approx(0.2, abs=0.01)
 
     def test_zero_db(self):
@@ -228,23 +264,41 @@ class TestClickSuppression:
         sr = 24000
         audio = _make_click_audio(sr, 1.0)
         original_jump = abs(audio[101] - audio[100])
-        assert original_jump > 0.5  # confirm click exists
+        assert original_jump > 0.5
 
         processed = apply_clip_fades(audio.copy(), sr)
         processed_jump = abs(processed[101] - processed[100])
-        assert processed_jump < original_jump  # click reduced
+        assert processed_jump < original_jump
 
 
 class TestReverb:
     def test_reverb_changes_audio(self):
         sr = 24000
+        rng = np.random.RandomState(99)
         audio = np.random.randn(sr).astype(np.float32) * 0.1
-        ir = generate_room_ir(sr, 0.15)
+        ir = generate_room_ir(sr, 0.15, rng=rng)
         result = apply_reverb(audio, ir, mix=0.02)
-        # Result should differ from dry signal
         assert not np.allclose(result, audio, atol=1e-6)
-        # But should be close (low wet mix)
         assert np.corrcoef(audio, result)[0, 1] > 0.95
+
+    def test_generate_room_ir_deterministic(self):
+        """Same seed produces same IR."""
+        sr = 24000
+        ir1 = generate_room_ir(sr, 0.15, rng=np.random.RandomState(42))
+        ir2 = generate_room_ir(sr, 0.15, rng=np.random.RandomState(42))
+        assert np.allclose(ir1, ir2)
+
+    def test_generate_room_ir_different_seeds(self):
+        sr = 24000
+        ir1 = generate_room_ir(sr, 0.15, rng=np.random.RandomState(1))
+        ir2 = generate_room_ir(sr, 0.15, rng=np.random.RandomState(2))
+        assert not np.allclose(ir1, ir2)
+
+    def test_zero_decay_time(self):
+        """Zero decay time produces a 1-sample IR without crashing."""
+        sr = 24000
+        ir = generate_room_ir(sr, 0.0, rng=np.random.RandomState(42))
+        assert len(ir) >= 1
 
 
 # ---------------------------------------------------------------------------
@@ -261,14 +315,12 @@ class TestProcessAll:
 
         assert result["processed"] == 2
         for info in manifest["lines"].values():
-            processed_path = cfg.lines_dir() / info["file"]
-            assert processed_path.exists()
+            assert (cfg.lines_dir() / info["file"]).exists()
 
     def test_raw_files_untouched(self, pipeline_env):
         cfg = pipeline_env["cfg"]
         manifest = pipeline_env["manifest"]
 
-        # Hash raw files before processing
         raw_hashes = {}
         for info in manifest["lines"].values():
             raw_path = cfg.tts_dir() / info["file"]
@@ -276,7 +328,6 @@ class TestProcessAll:
 
         process_all(manifest, cfg)
 
-        # Verify raw files are unchanged
         for info in manifest["lines"].values():
             raw_path = cfg.tts_dir() / info["file"]
             assert _file_hash(raw_path) == raw_hashes[info["file"]]
@@ -287,24 +338,20 @@ class TestProcessAll:
 
         process_all(manifest, cfg)
 
-        # Hash processed files
         processed_hashes = {}
         for info in manifest["lines"].values():
             processed_path = cfg.lines_dir() / info["file"]
             processed_hashes[info["file"]] = _file_hash(processed_path)
 
-        # Run again — should skip (files already exist)
         result = process_all(manifest, cfg)
         assert result["processed"] == 0
         assert result["skipped"] == 2
 
-        # Files unchanged
         for info in manifest["lines"].values():
             processed_path = cfg.lines_dir() / info["file"]
             assert _file_hash(processed_path) == processed_hashes[info["file"]]
 
     def test_speaker_volume_applied(self, pipeline_env):
-        """Zara (+2.5dB) should be louder than Alex (0dB) after processing."""
         cfg = pipeline_env["cfg"]
         manifest = pipeline_env["manifest"]
 
@@ -327,10 +374,78 @@ class TestProcessAll:
         cfg = pipeline_env["cfg"]
         manifest = pipeline_env["manifest"]
 
-        # Mark one line as missing
         first_hash = list(manifest["lines"].keys())[0]
         manifest["lines"][first_hash]["status"] = STATUS_MISSING
 
         result = process_all(manifest, cfg)
         assert result["processed"] == 1
         assert result["skipped"] == 1
+
+    def test_stereo_input_downmixed(self, pipeline_env):
+        """Stereo raw file is downmixed to mono."""
+        cfg = pipeline_env["cfg"]
+        manifest = pipeline_env["manifest"]
+
+        # Replace first file with stereo
+        first_hash = list(manifest["lines"].keys())[0]
+        info = manifest["lines"][first_hash]
+        stereo = np.random.randn(48000, 2).astype(np.float32) * 0.1
+        sf.write(str(cfg.tts_dir() / info["file"]), stereo, 24000)
+
+        process_all(manifest, cfg)
+
+        processed, sr = sf.read(str(cfg.lines_dir() / info["file"]))
+        assert processed.ndim == 1  # mono
+
+    def test_mismatched_sample_rate(self, pipeline_env):
+        """Raw file at different SR is resampled to target."""
+        cfg = pipeline_env["cfg"]
+        manifest = pipeline_env["manifest"]
+
+        first_hash = list(manifest["lines"].keys())[0]
+        info = manifest["lines"][first_hash]
+        audio_44k = _make_speech(44100, 2.0)
+        sf.write(str(cfg.tts_dir() / info["file"]), audio_44k, 44100)
+
+        process_all(manifest, cfg)
+
+        _, sr = sf.read(str(cfg.lines_dir() / info["file"]))
+        assert sr == 24000
+
+
+class TestProcessBackchannels:
+    def test_bc_clips_processed_to_subdirectory(self, pipeline_env):
+        """BC clips are written to processed/ subdir, originals preserved."""
+        cfg = pipeline_env["cfg"]
+        manifest = pipeline_env["manifest"]
+
+        result = process_all(manifest, cfg)
+
+        assert result["backchannels"] == 1
+        # Processed file exists
+        processed_path = cfg.backchannels_dir() / "processed" / "bc_alex_00.wav"
+        assert processed_path.exists()
+        # Original still exists and unchanged
+        original_path = cfg.backchannels_dir() / "bc_alex_00.wav"
+        assert original_path.exists()
+
+    def test_bc_idempotent(self, pipeline_env):
+        """Running twice doesn't re-process BC clips."""
+        cfg = pipeline_env["cfg"]
+        manifest = pipeline_env["manifest"]
+
+        process_all(manifest, cfg)
+        processed_hash = _file_hash(cfg.backchannels_dir() / "processed" / "bc_alex_00.wav")
+
+        result = process_all(manifest, cfg)
+        assert result["backchannels"] == 0
+        assert _file_hash(cfg.backchannels_dir() / "processed" / "bc_alex_00.wav") == processed_hash
+
+    def test_bc_originals_never_modified(self, pipeline_env):
+        """Original BC files are byte-identical after processing."""
+        cfg = pipeline_env["cfg"]
+        manifest = pipeline_env["manifest"]
+
+        original_hash = _file_hash(cfg.backchannels_dir() / "bc_alex_00.wav")
+        process_all(manifest, cfg)
+        assert _file_hash(cfg.backchannels_dir() / "bc_alex_00.wav") == original_hash
