@@ -197,7 +197,10 @@ class TestParseScript:
         lines = [e for e in entries if e["type"] == "line"]
         for line in lines:
             assert "hash" in line
-            assert len(line["hash"]) == 8
+            # Base hash is 8 chars; duplicates get _N suffix (e.g. 10+ chars)
+            base = line["hash"].split("_")[0] if "_" in line["hash"] else line["hash"]
+            assert len(base) == 8
+            assert all(c in "0123456789abcdef" for c in base)
 
     def test_sections_detected(self, script_file):
         entries = parse_script(script_file)
@@ -499,6 +502,13 @@ class TestManifestIO:
         """Loading a non-manifest JSON raises ValueError."""
         path = tmp_path / "bad.json"
         path.write_text('{"foo": "bar"}', encoding="utf-8")
+        with pytest.raises(ValueError, match="Invalid manifest format"):
+            load_manifest(path)
+
+    def test_load_missing_meta_raises(self, tmp_path):
+        """Loading manifest without meta key raises ValueError."""
+        path = tmp_path / "nometa.json"
+        path.write_text('{"lines": {}, "order": []}', encoding="utf-8")
         with pytest.raises(ValueError, match="Invalid manifest format"):
             load_manifest(path)
 

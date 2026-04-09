@@ -170,7 +170,7 @@ def parse_script_with_sections(path):
             lower = stripped.lower()
             # Inline backchannel: [react: speaker type]
             react_match = re.match(
-                r"^\[react:\s*(\w+)\s+(laugh|breath)\]$", lower,
+                r"^\[react:\s*(\w+)\s+(\w+)\]$", lower,
             )
             if react_match:
                 entries.append({

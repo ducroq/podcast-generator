@@ -306,10 +306,10 @@ def load_manifest(path):
     """
     with open(path, encoding="utf-8") as f:
         data = json.load(f)
-    if not isinstance(data, dict) or "lines" not in data or "order" not in data:
+    if not isinstance(data, dict) or not all(k in data for k in ("meta", "lines", "order")):
         raise ValueError(
             f"Invalid manifest format in {path}: "
-            f"expected dict with 'lines' and 'order' keys"
+            f"expected dict with 'meta', 'lines', and 'order' keys"
         )
     return data
 
