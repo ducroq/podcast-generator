@@ -18,6 +18,7 @@ Usage:
 """
 
 import logging
+import os
 import subprocess
 import tempfile
 from pathlib import Path
@@ -37,25 +38,29 @@ logger = logging.getLogger(__name__)
 
 
 def load_audio_file(path, target_sr):
-    """Load any audio file (MP3/WAV/etc) via ffmpeg, convert to mono float32."""
-    # Create temp file, close it (Windows needs this), then use the path
+    """Load any audio file (MP3/WAV/etc) via ffmpeg, convert to mono float32.
+
+    Raises RuntimeError if ffmpeg fails.
+    """
     fd, tmp_path = tempfile.mkstemp(suffix=".wav")
-    import os
     os.close(fd)
     try:
-        subprocess.run(
+        result = subprocess.run(
             ["ffmpeg", "-y", "-i", str(path),
              "-ar", str(target_sr), "-ac", "1", "-f", "wav", tmp_path],
             capture_output=True, timeout=60,
         )
+        if result.returncode != 0:
+            stderr = result.stderr.decode("utf-8", errors="replace")[-200:]
+            raise RuntimeError(f"ffmpeg failed for {path}: {stderr}")
         audio, _ = sf.read(tmp_path, dtype="float32")
     finally:
         Path(tmp_path).unlink(missing_ok=True)
     return audio
 
 
-def _load_line(path, target_sr):
-    """Load a processed WAV line. Already mono float32 at target_sr."""
+def _load_line(path):
+    """Load a processed WAV line (mono float32, already at target SR)."""
     audio, sr = sf.read(str(path), dtype="float32")
     if audio.ndim > 1:
         audio = audio.mean(axis=1)
@@ -72,6 +77,8 @@ def load_bc_clips(cfg, target_sr):
 
     Reads from processed_backchannels_dir (already faded/click-suppressed).
     Uses the clip metadata from config to determine type and speaker mapping.
+
+    Note: assumes flat filenames in backchannel clip config (no subdirectories).
     """
     bc_dir = cfg.processed_backchannels_dir()
     bc_clips = {}
@@ -81,6 +88,7 @@ def load_bc_clips(cfg, target_sr):
 
     for speaker in cfg.cast_names():
         for clip_info in cfg.backchannel_clips(speaker):
+            # Extract just the filename — redirect from raw dir to processed dir
             clip_name = Path(clip_info["file"]).name
             clip_path = bc_dir / clip_name
             if not clip_path.exists():
@@ -137,20 +145,7 @@ def build_section(order_entries, manifest_lines, lines_dir, sr, rng,
 
     Handles line concatenation with config-driven pauses, backchannel
     placement with overlap/spill/duck, and explicit pause entries.
-
-    Args:
-        order_entries: list of entries from manifest["order"]
-        manifest_lines: manifest["lines"] dict
-        lines_dir: Path to processed lines directory
-        sr: sample rate
-        rng: numpy random generator
-        mix_cfg: mix config dict from EpisodeConfig
-        bc_clips: loaded BC clips dict, or None
-
-    Returns:
-        numpy array of assembled audio
     """
-    # Extract mix constants
     speaker_change_pause = mix_cfg.get("speaker_change_pause", 0.15)
     same_speaker_pause = mix_cfg.get("same_speaker_pause", 0.08)
     interjection_pause = mix_cfg.get("interjection_pause", 0.05)
@@ -205,10 +200,9 @@ def build_section(order_entries, manifest_lines, lines_dir, sr, rng,
                 pending_bc = None
                 continue
 
-            audio = _load_line(wav_path, sr)
+            audio = _load_line(wav_path)
 
             if prev_speaker is not None:
-                # Determine gap duration
                 if info["speaker"] == prev_speaker:
                     base = same_speaker_pause
                 elif prev_line_dur < interjection_threshold:
@@ -219,7 +213,6 @@ def build_section(order_entries, manifest_lines, lines_dir, sr, rng,
                 gap = max(0.03, base + jitter)
 
                 if pending_bc is not None and last_line_idx is not None:
-                    # Place backchannel overlapping tail of previous line
                     gap = _place_backchannel(
                         parts, last_line_idx, pending_bc, gap, sr, rng,
                         bc_vol, bc_overlap_ms, bc_duck_threshold,
@@ -230,6 +223,8 @@ def build_section(order_entries, manifest_lines, lines_dir, sr, rng,
                     pending_bc = None
                     parts.append(np.zeros(int(sr * gap), dtype=np.float32))
             else:
+                if pending_bc is not None:
+                    logger.debug("Discarding BC cue before first line in section")
                 pending_bc = None
 
             parts.append(audio)
@@ -240,21 +235,20 @@ def build_section(order_entries, manifest_lines, lines_dir, sr, rng,
     return np.concatenate(parts) if parts else np.array([], dtype=np.float32)
 
 
-def _place_backchannel(parts, last_line_idx, pending_bc, gap, sr, rng,
+def _place_backchannel(parts, last_line_idx, bc_info, gap, sr, rng,
                        bc_vol, bc_overlap_ms, bc_duck_threshold,
                        bc_duck_level, bc_spill_room):
     """Place a backchannel clip overlapping the previous line.
 
-    Returns the effective gap duration (may be extended for spill).
-    Appends gap audio to parts.
+    Mutates parts[last_line_idx] in-place for ducking.
+    Appends gap audio to parts. Returns the effective gap duration.
     """
-    bc_clip = pending_bc["clip"] * bc_vol
+    bc_clip = bc_info["clip"] * bc_vol
     bc_len = len(bc_clip)
     bc_dur = bc_len / sr
 
     prev_line_audio = parts[last_line_idx]
 
-    # Overlap into the tail of the previous line
     overlap_ms = rng.uniform(*bc_overlap_ms)
     overlap_samples = int(sr * overlap_ms / 1000)
     overlap_samples = min(overlap_samples, len(prev_line_audio))
@@ -276,7 +270,6 @@ def _place_backchannel(parts, last_line_idx, pending_bc, gap, sr, rng,
     # Spill past the previous line
     spill = bc_clip[mix_into_prev:] if bc_len > mix_into_prev else np.array([], dtype=np.float32)
 
-    # Calculate effective gap including existing pauses between BC and now
     existing_gap_samples = sum(
         len(parts[i]) for i in range(last_line_idx + 1, len(parts))
     )
@@ -287,7 +280,6 @@ def _place_backchannel(parts, last_line_idx, pending_bc, gap, sr, rng,
     gap_samples = int(sr * effective_gap)
     gap_audio = np.zeros(gap_samples, dtype=np.float32)
 
-    # Place spill into existing gaps and new gap
     if len(spill) > 0:
         spill_pos = 0
         for i in range(last_line_idx + 1, len(parts)):
@@ -305,7 +297,7 @@ def _place_backchannel(parts, last_line_idx, pending_bc, gap, sr, rng,
 
     logger.info(
         "  BC: %s %s (%.1fs) -> overlap %.0fms, spill %.2fs, gap %.2fs",
-        pending_bc["reactor"], pending_bc["bc_type"], bc_dur,
+        bc_info["reactor"], bc_info["bc_type"], bc_dur,
         overlap_samples / sr * 1000, spill_dur, effective_gap,
     )
 
@@ -339,34 +331,50 @@ def build_intro_with_music(intro_voice, music_bed, sr, music_cfg):
 
     music_track = np.zeros(music_total_len, dtype=np.float32)
     music_needed = min(len(music_bed), music_total_len)
+    if music_needed < music_total_len:
+        logger.warning(
+            "Music bed (%.1fs) shorter than needed (%.1fs) — tail will be silent",
+            len(music_bed) / sr, music_total_len / sr,
+        )
     music_track[:music_needed] = music_bed[:music_needed]
 
+    # Apply volume envelope with vectorized numpy operations
     fade_in_end = int(sr * fade_in)
     voice_start = music_solo_samples
     voice_end = music_solo_samples + len(intro_voice)
     fade_out_start = intro_voice_len + pause_samples
 
-    # Apply volume envelope
-    for i in range(music_total_len):
-        if i < fade_in_end:
-            music_track[i] *= full_vol * (i / max(1, fade_in_end))
-        elif i < voice_start:
-            music_track[i] *= full_vol
-        elif i < voice_end:
-            music_track[i] *= duck_vol
-        elif i < intro_voice_len:
-            music_track[i] *= full_vol
-        elif i < fade_out_start:
-            music_track[i] *= full_vol
-        else:
-            progress = (i - fade_out_start) / max(1, music_total_len - fade_out_start)
-            music_track[i] *= full_vol * (1.0 - progress)
+    # Fade in
+    if fade_in_end > 0:
+        music_track[:fade_in_end] *= np.linspace(0, full_vol, fade_in_end, dtype=np.float32)
+    # Full volume before voice
+    music_track[fade_in_end:voice_start] *= full_vol
+    # Duck during voice
+    music_track[voice_start:voice_end] *= duck_vol
+    # Full volume after voice
+    music_track[voice_end:fade_out_start] *= full_vol
+    # Fade out
+    fade_out_len = music_total_len - fade_out_start
+    if fade_out_len > 0:
+        music_track[fade_out_start:] *= np.linspace(full_vol, 0, fade_out_len, dtype=np.float32)
 
     intro_section = music_track[:intro_voice_len].copy()
     intro_section[voice_start:voice_end] += intro_voice
     music_bleed = music_track[intro_voice_len:]
 
     return intro_section, music_bleed
+
+
+def build_intro_voice(manifest, lines_dir, sr):
+    """Build intro voiceover by concatenating intro lines from the manifest.
+
+    Intro lines are identified by having section=None (before any section header)
+    or by being loaded from a separate intro_lines file. For now, this function
+    returns an empty array — intro voice assembly from manifest is a future
+    enhancement. The caller can pass pre-built intro voice to mix_episode().
+    """
+    # Future: filter manifest for intro lines and concatenate
+    return np.array([], dtype=np.float32)
 
 
 # ---------------------------------------------------------------------------
@@ -377,11 +385,12 @@ def build_intro_with_music(intro_voice, music_bed, sr, music_cfg):
 def build_sting_transition(cold_open, sting, sr, sting_cfg):
     """Build the sting transition between cold open and conversation.
 
-    Returns (cold_body, sting_zone) where sting_zone overlaps the cold open
-    tail and crossfades into silence for the conversation to start.
+    Returns (cold_body, sting_zone). The sting_zone contains the cold open
+    tail mixed with the sting at reduced volume. The caller must then use
+    crossfade_into_conversation() to fade the sting_zone into the
+    conversation — the sting_zone does NOT fade out on its own.
     """
     fade_in_dur = sting_cfg.get("fade_in", 0.5)
-    crossfade = sting_cfg.get("crossfade", 2.5)
     vol_under_cold = sting_cfg.get("vol_under_cold", 0.35)
     overlap = sting_cfg.get("cold_open_overlap", 3.0)
 
@@ -448,12 +457,10 @@ def extract_sections(manifest):
             current_name = entry["to_section"]
             current_entries = []
         else:
-            if current_name is None:
-                # Entries before first section break — use from_section
-                if entry["type"] == "line":
-                    h = entry["hash"]
-                    info = manifest["lines"].get(h, {})
-                    current_name = info.get("section")
+            if current_name is None and entry["type"] == "line":
+                h = entry["hash"]
+                info = manifest["lines"].get(h, {})
+                current_name = info.get("section")
             current_entries.append(entry)
 
     if current_entries:
@@ -467,7 +474,7 @@ def extract_sections(manifest):
 # ---------------------------------------------------------------------------
 
 
-def mix_episode(manifest, cfg, output_path=None, seed=42):
+def mix_episode(manifest, cfg, output_path=None, intro_voice=None, seed=42):
     """Mix a complete episode from manifest + config.
 
     Builds each section individually (saved to sections_dir), then
@@ -478,6 +485,7 @@ def mix_episode(manifest, cfg, output_path=None, seed=42):
         manifest: manifest dict from load_manifest
         cfg: EpisodeConfig instance
         output_path: path for final mix WAV (default: work_dir/mix.wav)
+        intro_voice: pre-built intro voiceover array, or None to skip intro
         seed: random seed for jitter and noise (deterministic output)
 
     Returns:
@@ -495,19 +503,21 @@ def mix_episode(manifest, cfg, output_path=None, seed=42):
     mix_cfg = cfg.mix
     peak_limit_dbtp = mix_cfg.get("peak_limit_dbtp", -1.0)
     room_tone_level = mix_cfg.get("room_tone_level", 0.002)
+    tail_silence_dur = mix_cfg.get("tail_silence", 1.5)
 
     # Load BC clips
     bc_clips = load_bc_clips(cfg, sr)
-
-    # Load music assets
-    intro_bed_cfg = cfg.music_asset("intro_bed")
-    sting_cfg = cfg.music_asset("sting")
 
     # Extract sections from manifest
     sections = extract_sections(manifest)
     logger.info("Sections: %s", [name for name, _ in sections])
 
-    # Build each section
+    if not sections:
+        logger.warning("No sections found in manifest")
+        sf.write(str(output_path), np.array([], dtype=np.float32), sr)
+        return {"output": str(output_path), "duration": 0, "sections": []}
+
+    # Build each section and save individually
     section_audios = {}
     for name, entries in sections:
         logger.info("Building section: %s (%d entries)", name, len(entries))
@@ -517,65 +527,67 @@ def mix_episode(manifest, cfg, output_path=None, seed=42):
         )
         section_audios[name] = section_audio
 
-        # Save section WAV
         safe_name = name.lower().replace(" ", "_").replace("'", "").replace(":", "")
         section_path = sections_dir / f"{safe_name}.wav"
         sf.write(str(section_path), section_audio, sr)
         logger.info("  %s: %.1fs -> %s", name, len(section_audio) / sr, section_path.name)
 
-    if not sections:
-        logger.warning("No sections found in manifest")
-        return {"output": str(output_path), "duration": 0, "sections": []}
+    # Assemble from already-built sections (no double-building)
+    first_name = sections[0][0]
+    cold_open = section_audios[first_name]
 
-    # First section is cold open, rest is main conversation
-    first_section_name, _ = sections[0]
-    cold_open = section_audios[first_section_name]
+    # Main conversation: concatenate remaining sections with section pauses
+    section_pause_dur = mix_cfg.get("section_pause", 1.0)
+    main_parts = []
+    for name, _ in sections[1:]:
+        if main_parts:
+            main_parts.append(np.zeros(int(sr * section_pause_dur), dtype=np.float32))
+        main_parts.append(section_audios[name])
+    main_conv = np.concatenate(main_parts) if main_parts else np.array([], dtype=np.float32)
 
-    # Build main conversation from remaining sections
-    remaining_entries = []
-    for name, entries in sections[1:]:
-        remaining_entries.extend(entries)
-    main_conv = build_section(
-        remaining_entries, manifest["lines"], lines_dir, sr, rng,
-        mix_cfg, bc_clips=bc_clips,
-    ) if remaining_entries else np.array([], dtype=np.float32)
-
-    # Build intro with music (if assets available)
+    # Build intro with music
     intro_section = np.array([], dtype=np.float32)
     music_bleed = np.array([], dtype=np.float32)
-    if intro_bed_cfg and Path(intro_bed_cfg["file"]).exists():
-        # For now, use a silence placeholder for intro voice
-        # (intro voice assembly is a separate concern handled by the caller)
-        music_bed = load_audio_file(intro_bed_cfg["file"], sr)
-        # Intro voice would be passed in or built from intro_lines
-        # For this version, skip intro if no voice is provided
-        logger.info("Music bed loaded: %.1fs", len(music_bed) / sr)
+    intro_bed_cfg = cfg.music_asset("intro_bed")
+    if intro_voice is not None and len(intro_voice) > 0 and intro_bed_cfg:
+        if Path(intro_bed_cfg["file"]).exists():
+            music_bed = load_audio_file(intro_bed_cfg["file"], sr)
+            intro_section, music_bleed = build_intro_with_music(
+                intro_voice, music_bed, sr, intro_bed_cfg,
+            )
+            logger.info("Intro: %.1fs (voice + music)", len(intro_section) / sr)
 
     # Build sting transition
+    sting_cfg = cfg.music_asset("sting")
     if sting_cfg and Path(sting_cfg["file"]).exists():
         sting = load_audio_file(sting_cfg["file"], sr)
         logger.info("Sting loaded: %.1fs", len(sting) / sr)
-        cold_body, sting_zone = build_sting_transition(
-            cold_open, sting, sr, sting_cfg,
-        )
-        # Crossfade sting into conversation
+        cold_body, sting_zone = build_sting_transition(cold_open, sting, sr, sting_cfg)
         crossfade_dur = sting_cfg.get("crossfade", 2.5)
         conversation_with_sting = crossfade_into_conversation(
             sting_zone, main_conv, sr, crossfade_dur,
         )
-        tail_silence = np.zeros(int(sr * 1.5), dtype=np.float32)
-        full = np.concatenate([cold_body, conversation_with_sting, tail_silence])
+        tail_silence = np.zeros(int(sr * tail_silence_dur), dtype=np.float32)
+        episode_body = np.concatenate([cold_body, conversation_with_sting, tail_silence])
     else:
-        # No sting — just concatenate
-        section_pause = np.zeros(int(sr * mix_cfg.get("section_pause", 1.0)), dtype=np.float32)
-        tail_silence = np.zeros(int(sr * 1.5), dtype=np.float32)
-        full = np.concatenate([cold_open, section_pause, main_conv, tail_silence])
+        section_pause = np.zeros(int(sr * section_pause_dur), dtype=np.float32)
+        tail_silence = np.zeros(int(sr * tail_silence_dur), dtype=np.float32)
+        episode_body = np.concatenate([cold_open, section_pause, main_conv, tail_silence])
+
+    # Prepend intro + music bleed
+    if len(intro_section) > 0:
+        pause_after_intro = np.zeros(int(sr * 1.5), dtype=np.float32)
+        bleed_len = min(len(music_bleed), len(pause_after_intro) + len(episode_body))
+        body_with_pause = np.concatenate([pause_after_intro, episode_body])
+        body_with_pause[:bleed_len] += music_bleed[:bleed_len]
+        full = np.concatenate([intro_section, body_with_pause])
+    else:
+        full = episode_body
 
     # Room tone
     logger.info("Adding room tone...")
     pink = generate_pink_noise(len(full), rng)
     room_mask = np.ones(len(full), dtype=np.float32) * room_tone_level
-    # Fade in room tone over first 2 seconds
     fade_samples = min(int(sr * 2.0), len(full))
     room_mask[:fade_samples] *= np.linspace(0, 1, fade_samples, dtype=np.float32)
     full = full + pink * room_mask

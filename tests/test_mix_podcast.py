@@ -32,12 +32,10 @@ SR = 24000
 
 
 def _make_audio(duration=2.0, amplitude=0.1, sr=SR):
-    """Create test audio."""
     return (np.random.randn(int(sr * duration)) * amplitude).astype(np.float32)
 
 
 def _make_tone(duration=1.0, freq=440, sr=SR):
-    """Create a pure tone for testing crossfades and levels."""
     t = np.linspace(0, duration, int(sr * duration), dtype=np.float32)
     return np.sin(2 * np.pi * freq * t) * 0.3
 
@@ -60,6 +58,7 @@ PODCAST_YAML = {
         "reverb_decay": 0.15,
         "room_tone_level": 0.002,
         "peak_limit_dbtp": -1.0,
+        "tail_silence": 1.5,
         "backchannel": {
             "volume_db": -3.0,
             "overlap_ms": [200, 500],
@@ -87,7 +86,7 @@ PODCAST_YAML = {
     },
     "music": {
         "intro_bed": {
-            "file": "music/bed.mp3",
+            "file": "music/bed.wav",
             "music_solo": 2.0,
             "fade_in": 1.0,
             "full_vol": 0.35,
@@ -96,7 +95,7 @@ PODCAST_YAML = {
             "bleed_into_cold": 3.0,
         },
         "sting": {
-            "file": "music/sting.mp3",
+            "file": "music/sting.wav",
             "fade_in": 0.5,
             "crossfade": 1.0,
             "vol_under_cold": 0.35,
@@ -138,11 +137,20 @@ Alex: Short reply.
 Morgan: A longer line that goes on for a while with more content.
 """
 
+SINGLE_SECTION_SCRIPT = """\
+====================
+ONLY SECTION
+====================
+
+Alex: First line.
+
+Morgan: Second line.
+"""
+
 
 @pytest.fixture
 def mix_env(tmp_path):
     """Full environment for mix testing."""
-    # Config
     pod_dir = tmp_path / "podcasts" / "test-pod"
     pod_dir.mkdir(parents=True)
     with open(pod_dir / "podcast.yaml", "w") as f:
@@ -160,11 +168,9 @@ def mix_env(tmp_path):
 
     cfg = load_episode_config(ep_path, podcast_dir=pod_dir)
 
-    # Parse and build manifest
     entries = parse_script(cfg.script_path())
     manifest = build_manifest(entries, script_path=str(cfg.script_path()), episode="ep_test")
 
-    # Create processed line WAVs
     lines_dir = cfg.lines_dir()
     lines_dir.mkdir(parents=True)
     for h, info in manifest["lines"].items():
@@ -174,26 +180,21 @@ def mix_env(tmp_path):
         info["status"] = STATUS_EXISTS
         info["duration"] = dur
 
-    # Create BC clips
     bc_dir = cfg.backchannels_dir()
     processed_bc = bc_dir / "processed"
     processed_bc.mkdir(parents=True)
     sf.write(str(processed_bc / "bc_alex_00.wav"), _make_audio(0.8), SR)
     sf.write(str(processed_bc / "bc_morgan_00.wav"), _make_audio(0.5), SR)
 
-    # Create music assets
     music_dir = tmp_path / "podcasts" / "music"
     music_dir.mkdir(parents=True)
-    sf.write(str(music_dir / "bed.mp3"), _make_tone(10.0, 220), SR)
-    sf.write(str(music_dir / "sting.mp3"), _make_tone(3.0, 440), SR)
+    sf.write(str(music_dir / "bed.wav"), _make_tone(10.0, 220), SR)
+    sf.write(str(music_dir / "sting.wav"), _make_tone(3.0, 440), SR)
 
-    # Save manifest
     save_manifest(manifest, cfg.work_dir() / "manifest.json")
-
-    # Create sections dir
     cfg.sections_dir().mkdir(parents=True, exist_ok=True)
 
-    return {"cfg": cfg, "manifest": manifest}
+    return {"cfg": cfg, "manifest": manifest, "tmp_path": tmp_path}
 
 
 # ---------------------------------------------------------------------------
@@ -207,62 +208,55 @@ class TestBuildSection:
         manifest = mix_env["manifest"]
         rng = np.random.default_rng(42)
 
-        # Get cold open entries
         sections = extract_sections(manifest)
-        name, entries = sections[0]
+        _, entries = sections[0]
         audio = build_section(entries, manifest["lines"], cfg.lines_dir(),
                               SR, rng, cfg.mix)
         assert len(audio) > 0
         assert audio.dtype == np.float32
 
     def test_speaker_change_pause(self, mix_env):
-        """Gap between different speakers is ~speaker_change_pause."""
         cfg = mix_env["cfg"]
         manifest = mix_env["manifest"]
         rng = np.random.default_rng(42)
 
         sections = extract_sections(manifest)
-        _, entries = sections[0]  # cold open: Alex then Morgan
+        _, entries = sections[0]
         audio = build_section(entries, manifest["lines"], cfg.lines_dir(),
                               SR, rng, cfg.mix)
 
-        # Duration should be: line1 + pause + line2 (approx)
         line_durs = sum(
             manifest["lines"][e["hash"]]["duration"]
             for e in entries if e["type"] == "line"
         )
         total_dur = len(audio) / SR
         gap = total_dur - line_durs
-        assert 0.05 < gap < 0.5  # some pause exists between speakers
+        assert 0.05 < gap < 0.5
 
     def test_interjection_pause(self, mix_env):
-        """Short lines get shorter gaps."""
         cfg = mix_env["cfg"]
         manifest = mix_env["manifest"]
         rng = np.random.default_rng(42)
 
         sections = extract_sections(manifest)
-        _, entries = sections[1]  # conversation has "Short reply"
+        _, entries = sections[1]
         audio = build_section(entries, manifest["lines"], cfg.lines_dir(),
                               SR, rng, cfg.mix)
-        # Just verify it builds without error and has reasonable length
         assert len(audio) / SR > 3.0
 
     def test_backchannel_placed(self, mix_env):
-        """[react: alex laugh] produces audio with BC mixed in."""
         cfg = mix_env["cfg"]
         manifest = mix_env["manifest"]
         rng = np.random.default_rng(42)
 
         bc_clips = load_bc_clips(cfg, SR)
-        assert len(bc_clips) > 0  # BC clips loaded
+        assert len(bc_clips) > 0
 
         sections = extract_sections(manifest)
-        _, entries = sections[1]  # conversation has a react cue
+        _, entries = sections[1]
         audio = build_section(entries, manifest["lines"], cfg.lines_dir(),
                               SR, rng, cfg.mix, bc_clips=bc_clips)
 
-        # Audio should be longer than just the lines (BC adds gap extension)
         line_durs = sum(
             manifest["lines"][e["hash"]]["duration"]
             for e in entries if e["type"] == "line"
@@ -270,12 +264,10 @@ class TestBuildSection:
         assert len(audio) / SR > line_durs
 
     def test_missing_line_produces_silence(self, mix_env):
-        """Missing line produces 0.5s silence placeholder."""
         cfg = mix_env["cfg"]
         manifest = mix_env["manifest"]
         rng = np.random.default_rng(42)
 
-        # Mark first line as missing
         first_hash = [e["hash"] for e in manifest["order"] if e["type"] == "line"][0]
         manifest["lines"][first_hash]["status"] = STATUS_MISSING
 
@@ -283,7 +275,7 @@ class TestBuildSection:
         _, entries = sections[0]
         audio = build_section(entries, manifest["lines"], cfg.lines_dir(),
                               SR, rng, cfg.mix)
-        assert len(audio) > 0  # still produces audio
+        assert len(audio) > 0
 
 
 # ---------------------------------------------------------------------------
@@ -301,22 +293,39 @@ class TestIntroWithMusic:
 
         assert len(intro) > 0
         assert len(bleed) > 0
-        # Intro should be: music_solo + voice + post_voice
         expected_dur = 2.0 + 5.0 + 2.0
         assert len(intro) / SR == pytest.approx(expected_dur, abs=0.1)
 
     def test_music_ducked_during_voice(self):
+        """Music volume drops during voiceover section."""
         intro_voice = np.ones(int(SR * 3.0), dtype=np.float32) * 0.2
-        music_bed = np.ones(int(SR * 30.0), dtype=np.float32)
+        music_bed = np.ones(int(SR * 30.0), dtype=np.float32) * 1.0
         music_cfg = PODCAST_YAML["music"]["intro_bed"]
 
         intro, bleed = build_intro_with_music(intro_voice, music_bed, SR, music_cfg)
 
-        # During voice section, music should be ducked to duck_vol
-        voice_start = int(SR * 2.0)  # music_solo
-        voice_mid = voice_start + int(SR * 1.5)
-        # Music component at voice_mid should be much lower than full_vol
-        # (voice is added on top, but the base music track is ducked)
+        # Before voice (after fade-in): music at full_vol = 0.35
+        pre_voice_sample = int(SR * 1.5)  # after fade_in (1.0s), before voice_start (2.0s)
+        music_pre = abs(intro[pre_voice_sample] - intro_voice[0])  # subtract voice contribution
+        # During voice: music at duck_vol = 0.12
+        voice_mid = int(SR * 3.5)  # middle of voice section (2.0 + 1.5)
+        # The intro at voice_mid = music * duck_vol + voice
+        # So music component = intro[voice_mid] - voice[voice_mid - voice_start]
+        voice_start_sample = int(SR * 2.0)
+        music_during = intro[voice_mid] - intro_voice[voice_mid - voice_start_sample]
+
+        # Music during voice should be significantly quieter than before voice
+        assert abs(music_during) < abs(intro[pre_voice_sample]) * 0.8
+
+    def test_short_music_bed_warns(self, caplog):
+        """Short music bed logs a warning."""
+        import logging
+        with caplog.at_level(logging.WARNING):
+            intro_voice = _make_audio(3.0, 0.2)
+            music_bed = _make_tone(2.0, 220)  # too short
+            music_cfg = PODCAST_YAML["music"]["intro_bed"]
+            build_intro_with_music(intro_voice, music_bed, SR, music_cfg)
+        assert "shorter than needed" in caplog.text
 
 
 # ---------------------------------------------------------------------------
@@ -334,7 +343,6 @@ class TestStingTransition:
 
         assert len(cold_body) > 0
         assert len(sting_zone) > 0
-        # Cold body + sting zone should cover the full cold open
         assert len(cold_body) + len(sting_zone) >= len(cold_open)
 
     def test_crossfade_into_conversation(self):
@@ -342,8 +350,6 @@ class TestStingTransition:
         conversation = _make_audio(20.0)
 
         result = crossfade_into_conversation(sting_zone, conversation, SR, 1.0)
-
-        # Result should be roughly sting pre + crossfade + conversation
         assert len(result) > len(conversation) - int(SR * 1.0)
 
 
@@ -363,9 +369,26 @@ class TestExtractSections:
     def test_entries_are_correct_types(self, mix_env):
         manifest = mix_env["manifest"]
         sections = extract_sections(manifest)
-        for name, entries in sections:
+        for _, entries in sections:
             for e in entries:
                 assert e["type"] in ("line", "pause", "backchannel")
+
+    def test_single_section(self, mix_env):
+        """Script with one section produces one section."""
+        tmp_path = mix_env["tmp_path"]
+        script_path = tmp_path / "podcasts" / "scripts" / "single.txt"
+        script_path.write_text(SINGLE_SECTION_SCRIPT, encoding="utf-8")
+
+        entries = parse_script(script_path)
+        manifest = build_manifest(entries)
+        sections = extract_sections(manifest)
+        assert len(sections) == 1
+        assert sections[0][0] == "ONLY SECTION"
+
+    def test_empty_manifest(self):
+        manifest = {"meta": {"version": 1}, "lines": {}, "order": []}
+        sections = extract_sections(manifest)
+        assert sections == []
 
 
 # ---------------------------------------------------------------------------
@@ -375,15 +398,12 @@ class TestExtractSections:
 
 class TestPinkNoise:
     def test_deterministic(self):
-        rng1 = np.random.default_rng(42)
-        rng2 = np.random.default_rng(42)
-        p1 = generate_pink_noise(1000, rng1)
-        p2 = generate_pink_noise(1000, rng2)
+        p1 = generate_pink_noise(1000, np.random.default_rng(42))
+        p2 = generate_pink_noise(1000, np.random.default_rng(42))
         assert np.allclose(p1, p2)
 
     def test_normalized(self):
-        rng = np.random.default_rng(42)
-        pink = generate_pink_noise(SR, rng)
+        pink = generate_pink_noise(SR, np.random.default_rng(42))
         assert np.max(np.abs(pink)) == pytest.approx(1.0, abs=0.01)
 
 
@@ -403,6 +423,22 @@ class TestMixEpisode:
         assert result["duration"] > 0
         assert len(result["sections"]) == 2
 
+    def test_with_intro_voice(self, mix_env):
+        """Passing intro_voice produces a longer episode with intro."""
+        cfg = mix_env["cfg"]
+        manifest = mix_env["manifest"]
+
+        # Without intro
+        result_no_intro = mix_episode(manifest, cfg, seed=42)
+        dur_no_intro = result_no_intro["duration"]
+
+        # With intro
+        intro_voice = _make_audio(3.0, 0.2)
+        result_with = mix_episode(manifest, cfg, intro_voice=intro_voice, seed=42)
+        dur_with = result_with["duration"]
+
+        assert dur_with > dur_no_intro
+
     def test_section_files_created(self, mix_env):
         cfg = mix_env["cfg"]
         manifest = mix_env["manifest"]
@@ -420,24 +456,22 @@ class TestMixEpisode:
 
         audio, sr = sf.read(result["output"])
         peak = np.max(np.abs(audio))
-        limit = 10 ** (-1.0 / 20)  # -1 dBTP
+        limit = 10 ** (-1.0 / 20)
         assert peak <= limit + 0.001
 
     def test_room_tone_present(self, mix_env):
+        """Room tone prevents true silence in the tail."""
         cfg = mix_env["cfg"]
         manifest = mix_env["manifest"]
 
         result = mix_episode(manifest, cfg, seed=42)
 
         audio, sr = sf.read(result["output"])
-        # Room tone means there should be no true silence
-        # Check that the quietest section still has some signal
-        chunk_size = int(sr * 0.1)
-        min_rms = min(
-            np.sqrt(np.mean(audio[i:i+chunk_size] ** 2))
-            for i in range(0, len(audio) - chunk_size, chunk_size)
-        )
-        assert min_rms > 0  # room tone prevents true silence
+        # Check the tail silence region — should have room tone, not true silence
+        tail_start = len(audio) - int(sr * 1.0)
+        tail = audio[tail_start:]
+        tail_rms = np.sqrt(np.mean(tail ** 2))
+        assert tail_rms > 0
 
     def test_deterministic_output(self, mix_env):
         cfg = mix_env["cfg"]
@@ -455,7 +489,6 @@ class TestMixEpisode:
         cfg = mix_env["cfg"]
         manifest = mix_env["manifest"]
 
-        # Sum of all line durations
         total_line_dur = sum(
             info["duration"] for info in manifest["lines"].values()
             if info["status"] == STATUS_EXISTS
@@ -463,8 +496,6 @@ class TestMixEpisode:
 
         result = mix_episode(manifest, cfg, seed=42)
 
-        # Output should be within reasonable range of line durations
-        # (includes gaps, room tone, sting, etc.)
         assert result["duration"] > total_line_dur * 0.8
         assert result["duration"] < total_line_dur * 3.0
 
@@ -476,10 +507,45 @@ class TestMixEpisode:
         result1 = mix_episode(manifest, cfg, seed=42)
         audio1, _ = sf.read(result1["output"])
 
-        # Change speaker_change_pause
-        cfg._data["mix"]["speaker_change_pause"] = 0.5
+        # Change speaker_change_pause — use a fresh copy
+        cfg._data["mix"] = {**cfg._data["mix"], "speaker_change_pause": 0.5}
         result2 = mix_episode(manifest, cfg, seed=42)
         audio2, _ = sf.read(result2["output"])
 
-        # Different pause = different output length
         assert len(audio1) != len(audio2)
+
+    def test_no_sting(self, mix_env):
+        """Episode without sting still produces valid output."""
+        cfg = mix_env["cfg"]
+        manifest = mix_env["manifest"]
+
+        # Remove sting from music config
+        cfg._data["music"] = {k: v for k, v in cfg._data["music"].items() if k != "sting"}
+
+        result = mix_episode(manifest, cfg, seed=42)
+        assert Path(result["output"]).exists()
+        assert result["duration"] > 0
+
+    def test_single_section_episode(self, mix_env):
+        """Episode with one section (no cold open / conversation split)."""
+        cfg = mix_env["cfg"]
+        tmp_path = mix_env["tmp_path"]
+
+        script_path = tmp_path / "podcasts" / "scripts" / "single.txt"
+        script_path.write_text(SINGLE_SECTION_SCRIPT, encoding="utf-8")
+        cfg._data["script"] = "scripts/single.txt"
+
+        entries = parse_script(cfg.script_path())
+        manifest = build_manifest(entries)
+
+        # Create line files
+        for h, info in manifest["lines"].items():
+            audio = _make_audio(2.0)
+            sf.write(str(cfg.lines_dir() / info["file"]), audio, SR)
+            info["status"] = STATUS_EXISTS
+            info["duration"] = 2.0
+
+        result = mix_episode(manifest, cfg, seed=42)
+        assert Path(result["output"]).exists()
+        assert result["duration"] > 0
+        assert len(result["sections"]) == 1
