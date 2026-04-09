@@ -269,7 +269,11 @@ def _process_backchannels(cfg, target_sr, processing_cfg):
     processed = 0
     for speaker in cfg.cast_names():
         for clip_info in cfg.backchannel_clips(speaker):
+            # clip_info["file"] is resolved by config — may be absolute
             src_path = Path(clip_info["file"])
+            # If resolved path doesn't exist, try relative to bc_dir
+            if not src_path.exists():
+                src_path = bc_dir / src_path.name
             dst_path = out_dir / src_path.name
 
             if not src_path.exists():

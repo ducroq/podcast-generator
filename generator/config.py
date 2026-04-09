@@ -172,8 +172,15 @@ class EpisodeConfig:
         return self.work_dir() / "sections"
 
     def backchannels_dir(self):
-        """Work subdirectory for backchannel clips."""
+        """Work subdirectory for raw backchannel clips."""
         return self.work_dir() / "backchannels"
+
+    def processed_backchannels_dir(self):
+        """Work subdirectory for processed backchannel clips (faded, click-suppressed).
+
+        Step 5 (mix) should read BC clips from here, not backchannels_dir().
+        """
+        return self.backchannels_dir() / "processed"
 
     # ----- Music -----
 
