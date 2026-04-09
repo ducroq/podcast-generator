@@ -213,9 +213,14 @@ def build_manifest(entries, audio_dir=None, script_path=None, episode=None):
     Returns:
         {
             "meta": {version, script, episode, generated_at},
-            "lines": {hash: {speaker, text, emotion, file, status, ...}},
+            "lines": {hash: {speaker, text, emotion, file, status, duration, ...}},
             "order": [{"type": ..., "hash": ... or other fields}, ...],
         }
+
+    Note: ``duration`` reflects the file state at manifest-build time. It is
+    ``None`` for missing files and may be stale if files are regenerated after
+    the manifest is built. The mixer should read durations from disk at mix
+    time rather than relying solely on this field.
     """
     meta = {
         "version": MANIFEST_VERSION,

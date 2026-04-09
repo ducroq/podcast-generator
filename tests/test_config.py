@@ -36,6 +36,9 @@ PODCAST_YAML = {
         "backchannel": {
             "volume_db": -3.0,
             "overlap_ms": [200, 500],
+            "duck_threshold": 0.5,
+            "duck_level": 0.6,
+            "spill_breathing_room": 0.08,
         },
     },
     "processing": {"fade_in_ms": 35, "fade_out_ms": 20, "rms_target": 0.1},
@@ -61,10 +64,22 @@ PODCAST_YAML = {
                 {"file": "bc_morgan_00.wav", "type": "laugh", "label": "Heh."},
             ],
         },
+        "zara": {
+            "voice_ref": "zara.mp3",
+            "ref_text": "Hello from Zara.",
+            "engine": "qwen",
+            "fallback": ["chatterbox"],
+            "volume_db": 2.5,
+            "backchannels": [
+                {"file": "bc_zara_00.wav", "type": "laugh", "label": "Ha!"},
+                {"file": "bc_zara_01.wav", "type": "breath", "label": "(intake)"},
+            ],
+        },
     },
     "music": {
         "intro_bed": {
             "file": "music/bed.mp3",
+            "music_solo": 4.0,
             "fade_in": 2.0,
             "full_vol": 0.35,
             "duck_vol": 0.12,
@@ -87,6 +102,7 @@ EPISODE_YAML = {
     "aliases": {
         "junior manager": "alex",
         "team member 1": "morgan",
+        "team member 2": "zara",
     },
     "overrides": {},
     "force_fallback": [],
@@ -146,6 +162,13 @@ class TestDeepMerge:
         _deep_merge(base, {"a": 2})
         assert base["a"] == 1
 
+    def test_list_replacement_not_merge(self):
+        """Episode list replaces podcast list entirely (no appending)."""
+        base = {"fallback": ["chatterbox", "elevenlabs"]}
+        override = {"fallback": ["elevenlabs"]}
+        result = _deep_merge(base, override)
+        assert result["fallback"] == ["elevenlabs"]
+
 
 # ---------------------------------------------------------------------------
 # Podcast config loading
@@ -193,16 +216,14 @@ class TestLoadPodcastConfig:
 class TestLoadEpisodeConfig:
     def test_load_and_merge(self, episode_file, podcast_dir):
         cfg = load_episode_config(episode_file, podcast_dir=podcast_dir)
-        # Episode-specific
         assert cfg.episode["title"] == "The Nodding"
         assert cfg.episode["number"] == 1
-        # Inherited from podcast
         assert cfg.tts["temperature"] == 0.7
         assert cfg.mix["speaker_change_pause"] == 0.15
 
     def test_episode_overrides_podcast(self, tmp_path, podcast_dir):
         ep_data = dict(EPISODE_YAML)
-        ep_data["tts"] = {"temperature": 0.5}  # override podcast default
+        ep_data["tts"] = {"temperature": 0.5}
         episodes_dir = tmp_path / "podcasts" / "episodes"
         episodes_dir.mkdir(parents=True, exist_ok=True)
         path = episodes_dir / "ep_override.yaml"
@@ -210,7 +231,6 @@ class TestLoadEpisodeConfig:
             yaml.dump(ep_data, f)
         cfg = load_episode_config(path, podcast_dir=podcast_dir)
         assert cfg.tts["temperature"] == 0.5
-        # Other tts values still inherited
         assert cfg.tts["repetition_penalty"] == 1.2
 
     def test_missing_required_episode_key(self, tmp_path, podcast_dir):
@@ -218,6 +238,36 @@ class TestLoadEpisodeConfig:
         with open(path, "w") as f:
             yaml.dump({"episode": {"title": "Bad"}}, f)
         with pytest.raises(ValueError, match="missing required keys"):
+            load_episode_config(path, podcast_dir=podcast_dir)
+
+    def test_auto_discovery_without_podcast_dir(self, tmp_path):
+        """load_episode_config without podcast_dir uses convention."""
+        # Create podcasts/test-podcast/podcast.yaml
+        pd = tmp_path / "podcasts" / "test-podcast"
+        pd.mkdir(parents=True)
+        with open(pd / "podcast.yaml", "w") as f:
+            yaml.dump(PODCAST_YAML, f)
+        # Create podcasts/episodes/ep01.yaml
+        ed = tmp_path / "podcasts" / "episodes"
+        ed.mkdir(parents=True)
+        ep_path = ed / "ep01.yaml"
+        with open(ep_path, "w") as f:
+            yaml.dump(EPISODE_YAML, f)
+        # Load without podcast_dir
+        cfg = load_episode_config(ep_path)
+        assert cfg.episode["title"] == "The Nodding"
+        assert cfg.tts["temperature"] == 0.7
+
+    def test_force_fallback_invalid_engine(self, tmp_path, podcast_dir):
+        """force_fallback with invalid engine raises ValueError."""
+        ep_data = dict(EPISODE_YAML)
+        ep_data["force_fallback"] = [{"hash": "abc", "engine": "badengine", "reason": "test"}]
+        episodes_dir = tmp_path / "podcasts" / "episodes"
+        episodes_dir.mkdir(parents=True, exist_ok=True)
+        path = episodes_dir / "ep_bad_fb.yaml"
+        with open(path, "w") as f:
+            yaml.dump(ep_data, f)
+        with pytest.raises(ValueError, match="force_fallback.*unknown engine"):
             load_episode_config(path, podcast_dir=podcast_dir)
 
 
@@ -235,8 +285,11 @@ class TestCastLookup:
 
     def test_lookup_by_alias(self, episode_file, podcast_dir):
         cfg = load_episode_config(episode_file, podcast_dir=podcast_dir)
-        jm = cfg.cast("junior manager")
-        assert jm["voice_ref"] == "alex.mp3"
+        assert cfg.cast("junior manager")["voice_ref"] == "alex.mp3"
+
+    def test_lookup_zara_by_alias(self, episode_file, podcast_dir):
+        cfg = load_episode_config(episode_file, podcast_dir=podcast_dir)
+        assert cfg.cast("team member 2")["voice_ref"] == "zara.mp3"
 
     def test_lookup_case_insensitive(self, episode_file, podcast_dir):
         cfg = load_episode_config(episode_file, podcast_dir=podcast_dir)
@@ -253,12 +306,14 @@ class TestCastLookup:
         names = cfg.cast_names()
         assert "alex" in names
         assert "morgan" in names
+        assert "zara" in names
 
     def test_all_aliases(self, episode_file, podcast_dir):
         cfg = load_episode_config(episode_file, podcast_dir=podcast_dir)
         aliases = cfg.all_aliases()
         assert aliases["junior manager"] == "alex"
         assert aliases["team member 1"] == "morgan"
+        assert aliases["team member 2"] == "zara"
 
 
 # ---------------------------------------------------------------------------
@@ -284,10 +339,39 @@ class TestPathResolution:
         assert wd.name == "ep01"
         assert wd.parent.name == "work"
 
+    def test_tts_dir(self, episode_file, podcast_dir):
+        cfg = load_episode_config(episode_file, podcast_dir=podcast_dir)
+        assert cfg.tts_dir().name == "tts"
+        assert cfg.tts_dir().parent == cfg.work_dir()
+
+    def test_lines_dir(self, episode_file, podcast_dir):
+        cfg = load_episode_config(episode_file, podcast_dir=podcast_dir)
+        assert cfg.lines_dir().name == "lines"
+        assert cfg.lines_dir().parent == cfg.work_dir()
+
+    def test_sections_dir(self, episode_file, podcast_dir):
+        cfg = load_episode_config(episode_file, podcast_dir=podcast_dir)
+        assert cfg.sections_dir().name == "sections"
+
+    def test_backchannels_dir(self, episode_file, podcast_dir):
+        cfg = load_episode_config(episode_file, podcast_dir=podcast_dir)
+        assert cfg.backchannels_dir().name == "backchannels"
+
     def test_resolve_path(self, episode_file, podcast_dir):
         cfg = load_episode_config(episode_file, podcast_dir=podcast_dir)
         p = cfg.resolve_path("some/file.txt")
         assert str(p).endswith("some/file.txt") or str(p).endswith("some\\file.txt")
+
+    def test_voice_refs_dir(self, episode_file, podcast_dir):
+        cfg = load_episode_config(episode_file, podcast_dir=podcast_dir)
+        vrd = cfg.voice_refs_dir()
+        assert vrd.name == "voice_refs"
+
+    def test_voice_ref_path(self, episode_file, podcast_dir):
+        cfg = load_episode_config(episode_file, podcast_dir=podcast_dir)
+        path = cfg.voice_ref_path("alex")
+        assert path.name == "alex.mp3"
+        assert "voice_refs" in str(path)
 
 
 # ---------------------------------------------------------------------------
@@ -308,6 +392,8 @@ class TestMusicAssets:
         bed = cfg.music_asset("intro_bed")
         assert bed is not None
         assert bed["duck_vol"] == 0.12
+        assert bed["music_solo"] == 4.0
+        assert bed["fade_in"] == 2.0
 
     def test_missing_music_asset(self, episode_file, podcast_dir):
         cfg = load_episode_config(episode_file, podcast_dir=podcast_dir)
@@ -327,10 +413,23 @@ class TestBackchannelClips:
         assert clips[0]["type"] == "laugh"
         assert clips[0]["label"] == "Ha!"
 
+    def test_clips_paths_resolved(self, episode_file, podcast_dir):
+        cfg = load_episode_config(episode_file, podcast_dir=podcast_dir)
+        clips = cfg.backchannel_clips("alex")
+        # File paths should be absolute, pointing into backchannels dir
+        assert "backchannels" in clips[0]["file"]
+        assert clips[0]["file"].endswith("bc_alex_00.wav")
+
     def test_clips_by_alias(self, episode_file, podcast_dir):
         cfg = load_episode_config(episode_file, podcast_dir=podcast_dir)
         clips = cfg.backchannel_clips("junior manager")
         assert len(clips) == 2  # same as alex
+
+    def test_clips_for_zara(self, episode_file, podcast_dir):
+        cfg = load_episode_config(episode_file, podcast_dir=podcast_dir)
+        clips = cfg.backchannel_clips("zara")
+        assert len(clips) == 2
+        assert clips[0]["type"] == "laugh"
 
     def test_clips_for_unknown_speaker(self, episode_file, podcast_dir):
         cfg = load_episode_config(episode_file, podcast_dir=podcast_dir)
@@ -344,3 +443,36 @@ class TestBackchannelClips:
                 assert "file" in clip
                 assert "type" in clip
                 assert "label" in clip
+
+
+# ---------------------------------------------------------------------------
+# Properties
+# ---------------------------------------------------------------------------
+
+
+class TestProperties:
+    def test_processing(self, episode_file, podcast_dir):
+        cfg = load_episode_config(episode_file, podcast_dir=podcast_dir)
+        assert cfg.processing["fade_in_ms"] == 35
+        assert cfg.processing["rms_target"] == 0.1
+
+    def test_review(self, episode_file, podcast_dir):
+        cfg = load_episode_config(episode_file, podcast_dir=podcast_dir)
+        assert "fidelity" in cfg.review["agents"]
+
+    def test_overrides(self, episode_file, podcast_dir):
+        cfg = load_episode_config(episode_file, podcast_dir=podcast_dir)
+        assert cfg.overrides == {}
+
+    def test_force_fallback(self, episode_file, podcast_dir):
+        cfg = load_episode_config(episode_file, podcast_dir=podcast_dir)
+        assert cfg.force_fallback == []
+
+    def test_backchannel_mix_params(self, episode_file, podcast_dir):
+        cfg = load_episode_config(episode_file, podcast_dir=podcast_dir)
+        bc = cfg.mix["backchannel"]
+        assert bc["volume_db"] == -3.0
+        assert bc["overlap_ms"] == [200, 500]
+        assert bc["duck_threshold"] == 0.5
+        assert bc["duck_level"] == 0.6
+        assert bc["spill_breathing_room"] == 0.08
