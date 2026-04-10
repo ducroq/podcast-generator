@@ -249,22 +249,21 @@ def build_section(order_entries, manifest_lines, lines_dir, sr, rng,
 
     section = np.concatenate(parts)
 
-    # Smooth silence-to-speech transitions to eliminate micro-clicks
-    # at concatenation points.  Apply a short fade-in wherever RMS
-    # jumps from near-silence to speech.
+    # Smooth only actual discontinuities at concatenation points.
+    # Each clip already has its own boundary fade, so we only fix
+    # sample-level jumps that slipped through — not re-fade speech.
     xfade = int(sr * mix_cfg.get("section_crossfade_ms", 15) / 1000)
-    window = int(sr * 0.003)
-    i = window
-    while i < len(section) - window - xfade:
-        rms_pre = np.sqrt(np.mean(section[i - window:i] ** 2))
-        rms_post = np.sqrt(np.mean(section[i:i + window] ** 2))
-        if rms_pre < 0.003 and rms_post > 0.01:
-            # Fade in the transition zone
-            fade = np.linspace(0, 1, xfade, dtype=np.float32)
-            section[i:i + xfade] *= fade
-            i += xfade
-        else:
-            i += window
+    jump_thresh = 0.01  # only smooth jumps above this
+    for i in range(1, len(section)):
+        jump = abs(section[i] - section[i - 1])
+        # Only at silence→speech boundaries (low RMS before, jump after)
+        if jump > jump_thresh and i > 5:
+            rms_pre = np.sqrt(np.mean(section[max(0, i - 50):i] ** 2))
+            if rms_pre < 0.005:
+                # Apply a short ramp starting just before the jump
+                end = min(i + xfade, len(section))
+                section[i:end] *= np.linspace(
+                    0.5, 1.0, end - i, dtype=np.float32)
     return section
 
 
