@@ -143,14 +143,12 @@ class EpisodeConfig:
     def resolve_path(self, relative_path):
         """Resolve a path relative to the config base directory (podcasts/).
 
-        Rejects paths that escape the base directory (path traversal guard).
+        Rejects paths containing '..' components (path traversal guard).
+        Symlinks are allowed — only the logical path is checked.
         """
-        resolved = (self._base_dir / relative_path).resolve()
-        base = self._base_dir.resolve()
-        if not str(resolved).startswith(str(base)):
+        if ".." in Path(relative_path).parts:
             raise ValueError(
-                f"Path escapes base directory: {relative_path!r} "
-                f"(resolved to {resolved}, base is {base})"
+                f"Path traversal rejected: {relative_path!r} contains '..'"
             )
         return self._base_dir / relative_path
 
