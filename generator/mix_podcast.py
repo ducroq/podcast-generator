@@ -457,7 +457,12 @@ def build_sting_transition(cold_open, sting, sr, sting_cfg):
 
 
 def crossfade_into_conversation(sting_zone, conversation, sr, crossfade_dur):
-    """Crossfade sting zone into the main conversation."""
+    """Crossfade sting zone into the main conversation.
+
+    The sting fades out while conversation plays at full volume on top.
+    This is a one-sided fade: only the sting ramps down.  The conversation
+    starts at full volume so first words aren't eaten by the crossfade.
+    """
     crossfade_samples = int(sr * crossfade_dur)
 
     if len(sting_zone) > crossfade_samples:
@@ -467,14 +472,13 @@ def crossfade_into_conversation(sting_zone, conversation, sr, crossfade_dur):
         sting_pre = np.array([], dtype=np.float32)
         sting_tail = sting_zone * np.linspace(1, 0, len(sting_zone), dtype=np.float32)
 
+    # Conversation plays at full volume — sting fades underneath
     overlap_len = len(sting_tail)
     if len(conversation) >= overlap_len:
-        conv_fade_in = conversation[:overlap_len] * np.linspace(0, 1, overlap_len, dtype=np.float32)
-        overlap_zone = sting_tail + conv_fade_in
+        overlap_zone = sting_tail + conversation[:overlap_len]
         conv_rest = conversation[overlap_len:]
     else:
-        conv_fade_in = conversation * np.linspace(0, 1, len(conversation), dtype=np.float32)
-        overlap_zone = sting_tail[:len(conversation)] + conv_fade_in
+        overlap_zone = sting_tail[:len(conversation)] + conversation
         conv_rest = np.array([], dtype=np.float32)
 
     return np.concatenate([sting_pre, overlap_zone, conv_rest])
