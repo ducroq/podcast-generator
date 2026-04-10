@@ -79,13 +79,23 @@ class QwenAdapter:
         )
         logger.info("Qwen3-TTS loaded.")
 
+    # Qwen3-TTS codec rate: 12 tokens per second of audio.
+    CODEC_HZ = 12
+
     def generate(self, text, voice_ref, ref_text, language="English",
-                 temperature=0.7, repetition_penalty=1.2, **kwargs):
+                 temperature=0.7, repetition_penalty=1.2,
+                 max_per_word=0.6, **kwargs):
         import torch
+        # Cap generation length to prevent runaway hallucination.
+        # Much faster than waiting for full output then checking duration.
+        max_dur = estimate_max_duration(text, max_per_word)
+        max_tokens = int(max_dur * self.CODEC_HZ * 1.5)  # 50% headroom
+
         wavs, sr = self.model.generate_voice_clone(
             text=text, language=language,
             ref_audio=str(voice_ref), ref_text=ref_text,
             temperature=temperature, repetition_penalty=repetition_penalty,
+            max_new_tokens=max_tokens,
         )
         audio = wavs[0].copy()
         del wavs

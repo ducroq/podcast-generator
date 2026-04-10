@@ -95,6 +95,8 @@ def load_bc_clips(cfg, target_sr):
                 continue
 
             audio, sr = sf.read(str(clip_path), dtype="float32")
+            if audio.ndim > 1:
+                audio = audio.mean(axis=1)
             bc_type = clip_info["type"]
 
             if bc_type not in bc_clips:
@@ -153,7 +155,8 @@ def build_section(order_entries, manifest_lines, lines_dir, sr, rng,
     section_pause = mix_cfg.get("section_pause", 1.0)
 
     bc_cfg = mix_cfg.get("backchannel", {})
-    bc_vol = 10 ** (bc_cfg.get("volume_db", -3.0) / 20)
+    bc_default_vol = bc_cfg.get("volume_db", -3.0)
+    bc_vol_by_type = bc_cfg.get("volume_by_type", {})
     bc_overlap_ms = bc_cfg.get("overlap_ms", [200, 500])
     bc_duck_threshold = bc_cfg.get("duck_threshold", 0.5)
     bc_duck_level = bc_cfg.get("duck_level", 0.6)
@@ -190,12 +193,19 @@ def build_section(order_entries, manifest_lines, lines_dir, sr, rng,
             h = entry["hash"]
             info = manifest_lines.get(h)
             if info is None or info["status"] != STATUS_EXISTS:
+                speaker = info["speaker"] if info else "unknown"
+                logger.warning("Missing/failed line %s (%s) — substituting 0.5s silence", h, speaker)
+                if pending_bc is not None:
+                    logger.warning("  Discarding pending BC cue (%s) adjacent to missing line", pending_bc["reactor"])
                 parts.append(np.zeros(int(sr * 0.5), dtype=np.float32))
                 pending_bc = None
                 continue
 
             wav_path = lines_dir / info["file"]
             if not wav_path.exists():
+                logger.warning("WAV missing for line %s (%s): %s — substituting 0.5s silence", h, info["speaker"], wav_path.name)
+                if pending_bc is not None:
+                    logger.warning("  Discarding pending BC cue (%s) adjacent to missing line", pending_bc["reactor"])
                 parts.append(np.zeros(int(sr * 0.5), dtype=np.float32))
                 pending_bc = None
                 continue
@@ -213,6 +223,8 @@ def build_section(order_entries, manifest_lines, lines_dir, sr, rng,
                 gap = max(0.03, base + jitter)
 
                 if pending_bc is not None and last_line_idx is not None:
+                    vol_db = bc_vol_by_type.get(pending_bc["bc_type"], bc_default_vol)
+                    bc_vol = 10 ** (vol_db / 20)
                     gap = _place_backchannel(
                         parts, last_line_idx, pending_bc, gap, sr, rng,
                         bc_vol, bc_overlap_ms, bc_duck_threshold,
@@ -232,7 +244,28 @@ def build_section(order_entries, manifest_lines, lines_dir, sr, rng,
             prev_line_dur = len(audio) / sr
             prev_speaker = info["speaker"]
 
-    return np.concatenate(parts) if parts else np.array([], dtype=np.float32)
+    if not parts:
+        return np.array([], dtype=np.float32)
+
+    section = np.concatenate(parts)
+
+    # Smooth silence-to-speech transitions to eliminate micro-clicks
+    # at concatenation points.  Apply a short fade-in wherever RMS
+    # jumps from near-silence to speech.
+    xfade = int(sr * mix_cfg.get("section_crossfade_ms", 15) / 1000)
+    window = int(sr * 0.003)
+    i = window
+    while i < len(section) - window - xfade:
+        rms_pre = np.sqrt(np.mean(section[i - window:i] ** 2))
+        rms_post = np.sqrt(np.mean(section[i:i + window] ** 2))
+        if rms_pre < 0.003 and rms_post > 0.01:
+            # Fade in the transition zone
+            fade = np.linspace(0, 1, xfade, dtype=np.float32)
+            section[i:i + xfade] *= fade
+            i += xfade
+        else:
+            i += window
+    return section
 
 
 def _place_backchannel(parts, last_line_idx, bc_info, gap, sr, rng,
@@ -292,6 +325,9 @@ def _place_backchannel(parts, last_line_idx, bc_info, gap, sr, rng,
         remainder = len(spill) - spill_pos
         if remainder > 0 and remainder <= gap_samples:
             gap_audio[:remainder] += spill[spill_pos:]
+        elif remainder > gap_samples:
+            logger.warning("  BC spill truncated: %d samples (%.0fms) exceeded gap",
+                           remainder - gap_samples, (remainder - gap_samples) / sr * 1000)
 
     parts.append(gap_audio)
 
@@ -338,25 +374,29 @@ def build_intro_with_music(intro_voice, music_bed, sr, music_cfg):
         )
     music_track[:music_needed] = music_bed[:music_needed]
 
-    # Apply volume envelope with vectorized numpy operations
+    # Build volume envelope as a separate array, then apply once.
+    # This avoids double-multiplication when fade_in >= music_solo.
     fade_in_end = int(sr * fade_in)
     voice_start = music_solo_samples
     voice_end = music_solo_samples + len(intro_voice)
     fade_out_start = intro_voice_len + pause_samples
 
-    # Fade in
+    envelope = np.zeros(music_total_len, dtype=np.float32)
+    # Fade in (0 → full_vol)
     if fade_in_end > 0:
-        music_track[:fade_in_end] *= np.linspace(0, full_vol, fade_in_end, dtype=np.float32)
+        envelope[:fade_in_end] = np.linspace(0, full_vol, fade_in_end, dtype=np.float32)
     # Full volume before voice
-    music_track[fade_in_end:voice_start] *= full_vol
+    envelope[fade_in_end:voice_start] = full_vol
     # Duck during voice
-    music_track[voice_start:voice_end] *= duck_vol
+    envelope[voice_start:voice_end] = duck_vol
     # Full volume after voice
-    music_track[voice_end:fade_out_start] *= full_vol
-    # Fade out
+    envelope[voice_end:fade_out_start] = full_vol
+    # Fade out (full_vol → 0)
     fade_out_len = music_total_len - fade_out_start
     if fade_out_len > 0:
-        music_track[fade_out_start:] *= np.linspace(full_vol, 0, fade_out_len, dtype=np.float32)
+        envelope[fade_out_start:] = np.linspace(full_vol, 0, fade_out_len, dtype=np.float32)
+
+    music_track *= envelope
 
     intro_section = music_track[:intro_voice_len].copy()
     intro_section[voice_start:voice_end] += intro_voice
@@ -406,9 +446,13 @@ def build_sting_transition(cold_open, sting, sr, sting_cfg):
     sting_zone_len = max(len(sting_copy), len(cold_tail))
     sting_zone = np.zeros(sting_zone_len, dtype=np.float32)
     sting_zone[:len(cold_tail)] += cold_tail
-    for i in range(min(len(sting_copy), sting_zone_len)):
-        vol = vol_under_cold if i < len(cold_tail) else 1.0
-        sting_zone[i] += sting_copy[i] * vol
+
+    # Sting plays at vol_under_cold while cold tail is present, full volume after
+    sting_len = min(len(sting_copy), sting_zone_len)
+    cold_len = min(len(cold_tail), sting_len)
+    vol_arr = np.ones(sting_len, dtype=np.float32)
+    vol_arr[:cold_len] = vol_under_cold
+    sting_zone[:sting_len] += sting_copy[:sting_len] * vol_arr
 
     return cold_body, sting_zone
 
@@ -426,10 +470,12 @@ def crossfade_into_conversation(sting_zone, conversation, sr, crossfade_dur):
 
     overlap_len = len(sting_tail)
     if len(conversation) >= overlap_len:
-        overlap_zone = sting_tail + conversation[:overlap_len]
+        conv_fade_in = conversation[:overlap_len] * np.linspace(0, 1, overlap_len, dtype=np.float32)
+        overlap_zone = sting_tail + conv_fade_in
         conv_rest = conversation[overlap_len:]
     else:
-        overlap_zone = sting_tail[:len(conversation)] + conversation
+        conv_fade_in = conversation * np.linspace(0, 1, len(conversation), dtype=np.float32)
+        overlap_zone = sting_tail[:len(conversation)] + conv_fade_in
         conv_rest = np.array([], dtype=np.float32)
 
     return np.concatenate([sting_pre, overlap_zone, conv_rest])

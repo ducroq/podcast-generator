@@ -5,8 +5,6 @@
 #   ./transcribe_remote.sh podcast.mp3
 #   ./transcribe_remote.sh podcast.mp3 --language en
 #   ./transcribe_remote.sh podcast.mp3 --model medium
-#
-# The transcript is saved next to the input file as .txt
 
 set -euo pipefail
 
@@ -27,23 +25,22 @@ BASENAME="$(basename "$AUDIO_FILE")"
 STEM="${BASENAME%.*}"
 LOCAL_DIR="$(dirname "$(realpath "$AUDIO_FILE")")"
 REMOTE_DIR="~/transcribe_tmp"
-EXTRA_ARGS="$*"
 
 echo "==> Uploading $BASENAME to gpu-server..."
-ssh gpu-server "mkdir -p $REMOTE_DIR"
+ssh gpu-server "mkdir -p '$REMOTE_DIR'"
 scp "$AUDIO_FILE" "gpu-server:$REMOTE_DIR/$BASENAME"
 
 echo "==> Transcribing on gpu-server..."
 ssh gpu-server "source ~/podcast-generator/vox-env/bin/activate && \
     python ~/podcast-generator/transcribe.py \
-    $REMOTE_DIR/$BASENAME \
-    --output $REMOTE_DIR/$STEM.txt \
-    $EXTRA_ARGS"
+    '$REMOTE_DIR/$BASENAME' \
+    --output '$REMOTE_DIR/$STEM.txt' \
+    $(printf '%q ' "$@")"
 
 echo "==> Downloading transcript..."
 scp "gpu-server:$REMOTE_DIR/$STEM.txt" "$LOCAL_DIR/$STEM.txt"
 
 echo "==> Cleaning up remote files..."
-ssh gpu-server "rm -f $REMOTE_DIR/$BASENAME $REMOTE_DIR/$STEM.txt"
+ssh gpu-server "rm -f '$REMOTE_DIR/$BASENAME' '$REMOTE_DIR/$STEM.txt'"
 
 echo "==> Done! Transcript saved to: $LOCAL_DIR/$STEM.txt"

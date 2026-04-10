@@ -164,14 +164,23 @@ class TestTrimSilence:
 
         trimmed = trim_silence(audio, sr, threshold_db=-35, pre_roll_ms=40)
         assert len(trimmed) < len(audio)
+        # Trimmed = pre_roll + speech + possible tail pad
         pre_roll_samples = int(sr * 0.04)
-        assert len(trimmed) == pytest.approx(len(speech) + pre_roll_samples, abs=sr * 0.015)
+        min_pad = int(sr * 0.025)  # default 25ms
+        assert len(trimmed) == pytest.approx(
+            len(speech) + pre_roll_samples + min_pad, abs=sr * 0.015)
 
     def test_no_silence_to_trim(self):
         sr = 24000
         audio = np.ones(int(sr * 1.0), dtype=np.float32) * 0.1
         trimmed = trim_silence(audio, sr)
-        assert len(trimmed) <= len(audio)
+        # Speech starts at sample 0 AND ends at last sample, so
+        # min_pad is added to both head and tail
+        min_pad = int(sr * 0.025)  # default 25ms
+        assert len(trimmed) <= len(audio) + 2 * min_pad
+        # Verify pads are silence
+        assert trimmed[0] == 0.0
+        assert trimmed[-1] == 0.0
 
     def test_all_silence(self):
         sr = 24000
@@ -191,13 +200,14 @@ class TestTrimSilence:
         assert len(trimmed) < 2000  # much less than 48000 original
 
     def test_very_short_clip(self):
-        """Clip shorter than one window is returned unchanged."""
+        """Clip shorter than one window — speech detected, pad added if needed."""
         sr = 24000
         audio = np.zeros(100, dtype=np.float32)
         audio[50] = 0.1
         trimmed = trim_silence(audio, sr)
-        # Should still detect and trim
-        assert len(trimmed) <= len(audio)
+        # Speech at sample 50 with pre_roll=40ms (960 samples) — pre_roll
+        # exceeds position, so start=0. Pad may be prepended if silence < min_pad.
+        assert len(trimmed) >= 100  # at least original length
 
 
 class TestSpeechAwareFade:

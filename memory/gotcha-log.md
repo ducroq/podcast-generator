@@ -140,6 +140,21 @@
 **Root cause**: Missing `try/finally` around the processing block.
 **Fix**: Wrapped all temp file usage in `try/finally` with `Path(tmp.name).unlink(missing_ok=True)`.
 
+### voice_refs_dir resolves relative to podcasts/ but refs live at ~/voice_refs on gpu-server (2026-04-09)
+**Problem**: `generate_tts` on gpu-server fails with "No such file or directory: podcasts/voice_refs/alex_qwen_ref.mp3". Config resolves `voice_refs_dir: voice_refs` relative to the podcasts/ root, but on gpu-server the refs are at `~/voice_refs/`.
+**Root cause**: Config path resolution is local-relative. The comment in podcast.yaml says "On gpu-server this maps to ~/voice_refs/" but nothing enforces that.
+**Fix**: `ln -sf ~/voice_refs ~/podcast-generator/podcasts/voice_refs` on gpu-server. Long-term: config.py should support absolute paths or env-var expansion for cross-machine paths.
+
+### generate_missing iterates ALL lines even when only a subset needs generation (2026-04-09)
+**Problem**: To generate only cold open lines, we marked non-target lines as `status=exists` before calling `generate_missing`. But the function still iterates all 89 lines, loading the adapter and calling `generate()` for each — the "exists" lines are skipped inside the per-line try block, but the overhead and logging are confusing.
+**Root cause**: `generate_missing` has no section filter. It processes the full manifest sequentially.
+**Fix**: Add a `section` or `hashes` filter parameter to `generate_missing` so callers can target specific lines without manifest hacking.
+
+### VRAM fragmentation causes intermittent OOM on Qwen3-TTS (2026-04-09)
+**Problem**: Short lines succeed but longer lines OOM on RTX 4080 with 6-7GB free. Model is ~4GB but generation of longer sequences needs proportionally more temporary VRAM. Failed lines don't release their VRAM cleanly, causing cascading OOM for subsequent lines.
+**Root cause**: CUDA memory fragmentation after OOM errors. `torch.cuda.empty_cache()` is not called between failures. Also, another process (`nexusmind-scorer`) was holding 10GB, leaving insufficient headroom.
+**Fix**: (1) Check VRAM availability before starting generation. (2) Add `torch.cuda.empty_cache()` after each OOM failure in `generate_tts.py`. (3) Ensure exclusive GPU access during TTS runs.
+
 ## Promoted
 
 <!-- Track gotchas that have been promoted to topic files or the memory index.

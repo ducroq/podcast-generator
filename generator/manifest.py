@@ -176,7 +176,8 @@ def parse_script(path, beat_pause=DEFAULT_BEAT_PAUSE):
             if match:
                 speaker = match.group(1).strip().lower()
                 emotion = match.group(2).strip() if match.group(2) else None
-                text = match.group(3).strip()
+                text = _EMOTION_RE.sub("", match.group(3)).strip()
+                text = re.sub(r"\s{2,}", " ", text)  # collapse double spaces
                 if text:
                     base_hash = content_hash(text, speaker=speaker)
                     # Disambiguate duplicates with stable suffix
