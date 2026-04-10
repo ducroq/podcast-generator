@@ -352,16 +352,16 @@ def main():
     # -----------------------------------------------------------------------
     # Summary
     # -----------------------------------------------------------------------
+    total_checks = 18 + (1 if not args.no_intro else 0)
     logger.info("\n" + "=" * 60)
     if failures:
-        logger.error("SMOKE TEST: %d/%d checks FAILED", len(failures),
-                      len(failures) + sum(1 for _ in rms_windows if True) - len(dead_spots) + 17)
+        logger.error("SMOKE TEST: %d/%d checks FAILED",
+                      len(failures), total_checks)
         for f in failures:
             logger.error("  - %s", f)
         logger.info("=" * 60)
         return 1
     else:
-        total_checks = 17 + (1 if not args.no_intro else 0)
         logger.info("SMOKE TEST: ALL %d CHECKS PASSED", total_checks)
         logger.info("=" * 60)
         logger.info("Output:   %s", mix_result["output"])

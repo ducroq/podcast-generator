@@ -195,30 +195,16 @@ def apply_reverb(audio, ir, mix=0.02):
 def apply_clip_fades(audio, sr, fade_in_ms=35, fade_out_ms=20,
                      click_check_ms=50, click_threshold=0.08,
                      click_smooth_samples=7):
-    """Fade edges and suppress clicks at clip boundaries.
+    """Suppress clicks at clip boundaries.
 
-    Fade-in is capped to the leading silence so it never eats into speech.
-    Click suppression smooths large sample-to-sample jumps in the first/last
-    check region.
+    Smooths large sample-to-sample jumps in the first/last check region.
+    Boundary fades (ramp to/from zero) are handled separately by the
+    boundary_fade_ms step in process_one — this function only does click
+    suppression.
 
     Note: this function modifies the input array in-place for performance.
     Pass ``audio.copy()`` if you need to preserve the original.
     """
-    # Detect where speech starts (first sample above -40 dB)
-    speech_thresh = 10 ** (-40 / 20)
-    speech_start = len(audio)
-    for i in range(len(audio)):
-        if abs(audio[i]) > speech_thresh:
-            speech_start = i
-            break
-
-    # Fade-in: never longer than the silence before speech
-    fade_in = min(int(sr * fade_in_ms / 1000), max(speech_start - 1, 1))
-    fade_out = int(sr * fade_out_ms / 1000)
-    if len(audio) > fade_in + fade_out:
-        audio[:fade_in] *= np.linspace(0, 1, fade_in, dtype=np.float32)
-        audio[-fade_out:] *= np.linspace(1, 0, fade_out, dtype=np.float32)
-
     # Click suppression in first/last check region
     check_samples = int(sr * click_check_ms / 1000)
     half_smooth = click_smooth_samples // 2
@@ -506,7 +492,9 @@ def process_all(manifest, cfg):
     # Process backchannel clips
     bc_processed = _process_backchannels(cfg, target_sr, processing_cfg)
 
-    # Onset quality report (on raw TTS — before smoothing was applied)
+    # Onset quality report — reads raw TTS files (tts_dir), not processed
+    # output (lines_dir).  Reports artifacts in Qwen's output; the
+    # smoother has already fixed these in the processed files.
     onset_report = check_all_onsets(manifest, cfg)
 
     return {"processed": processed, "skipped": skipped,

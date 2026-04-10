@@ -252,18 +252,22 @@ def build_section(order_entries, manifest_lines, lines_dir, sr, rng,
     # Smooth only actual discontinuities at concatenation points.
     # Each clip already has its own boundary fade, so we only fix
     # sample-level jumps that slipped through — not re-fade speech.
+    # Vectorized: find all large jumps, then filter to silence boundaries.
     xfade = int(sr * mix_cfg.get("section_crossfade_ms", 15) / 1000)
-    jump_thresh = 0.01  # only smooth jumps above this
-    for i in range(1, len(section)):
-        jump = abs(section[i] - section[i - 1])
-        # Only at silence→speech boundaries (low RMS before, jump after)
-        if jump > jump_thresh and i > 5:
-            rms_pre = np.sqrt(np.mean(section[max(0, i - 50):i] ** 2))
-            if rms_pre < 0.005:
-                # Apply a short ramp starting just before the jump
-                end = min(i + xfade, len(section))
-                section[i:end] *= np.linspace(
-                    0.5, 1.0, end - i, dtype=np.float32)
+    jump_thresh = 0.01
+    rms_window = 50
+
+    diffs = np.abs(np.diff(section))
+    candidates = np.where(diffs > jump_thresh)[0] + 1  # +1: diff index → sample index
+
+    for i in candidates:
+        if i <= rms_window:
+            continue
+        rms_pre = np.sqrt(np.mean(section[i - rms_window:i] ** 2))
+        if rms_pre < 0.005:
+            end = min(i + xfade, len(section))
+            section[i:end] *= np.linspace(0.5, 1.0, end - i, dtype=np.float32)
+
     return section
 
 
@@ -350,7 +354,7 @@ def build_intro_with_music(intro_voice, music_bed, sr, music_cfg):
     Returns (intro_section, music_bleed) where music_bleed fades into cold open.
     """
     music_solo = music_cfg.get("music_solo", 4.0)
-    fade_in = music_cfg.get("fade_in", 2.0)
+    fade_in = min(music_cfg.get("fade_in", 2.0), music_solo)  # clamp to avoid envelope gap
     full_vol = music_cfg.get("full_vol", 0.35)
     duck_vol = music_cfg.get("duck_vol", 0.12)
     post_voice = music_cfg.get("post_voice", 5.0)
@@ -386,10 +390,15 @@ def build_intro_with_music(intro_voice, music_bed, sr, music_cfg):
         envelope[:fade_in_end] = np.linspace(0, full_vol, fade_in_end, dtype=np.float32)
     # Full volume before voice
     envelope[fade_in_end:voice_start] = full_vol
-    # Duck during voice
-    envelope[voice_start:voice_end] = duck_vol
-    # Full volume after voice
-    envelope[voice_end:fade_out_start] = full_vol
+    # Duck ramp into voice (50ms transition to avoid click)
+    duck_ramp = min(int(sr * 0.05), (voice_end - voice_start) // 4)
+    envelope[voice_start:voice_start + duck_ramp] = np.linspace(
+        full_vol, duck_vol, duck_ramp, dtype=np.float32)
+    envelope[voice_start + duck_ramp:voice_end] = duck_vol
+    # Ramp back up after voice
+    envelope[voice_end:voice_end + duck_ramp] = np.linspace(
+        duck_vol, full_vol, duck_ramp, dtype=np.float32)
+    envelope[voice_end + duck_ramp:fade_out_start] = full_vol
     # Fade out (full_vol → 0)
     fade_out_len = music_total_len - fade_out_start
     if fade_out_len > 0:
