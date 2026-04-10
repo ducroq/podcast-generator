@@ -247,28 +247,7 @@ def build_section(order_entries, manifest_lines, lines_dir, sr, rng,
     if not parts:
         return np.array([], dtype=np.float32)
 
-    section = np.concatenate(parts)
-
-    # Smooth only actual discontinuities at concatenation points.
-    # Each clip already has its own boundary fade, so we only fix
-    # sample-level jumps that slipped through — not re-fade speech.
-    # Vectorized: find all large jumps, then filter to silence boundaries.
-    xfade = int(sr * mix_cfg.get("section_crossfade_ms", 15) / 1000)
-    jump_thresh = 0.01
-    rms_window = 50
-
-    diffs = np.abs(np.diff(section))
-    candidates = np.where(diffs > jump_thresh)[0] + 1  # +1: diff index → sample index
-
-    for i in candidates:
-        if i <= rms_window:
-            continue
-        rms_pre = np.sqrt(np.mean(section[i - rms_window:i] ** 2))
-        if rms_pre < 0.005:
-            end = min(i + xfade, len(section))
-            section[i:end] *= np.linspace(0.5, 1.0, end - i, dtype=np.float32)
-
-    return section
+    return np.concatenate(parts)
 
 
 def _place_backchannel(parts, last_line_idx, bc_info, gap, sr, rng,
