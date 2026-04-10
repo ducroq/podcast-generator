@@ -508,3 +508,89 @@ def generate_missing(manifest, cfg, dry_run=False):
         generated, skipped, failed, len(lines),
     )
     return {"generated": generated, "skipped": skipped, "failed": failed, "total": len(lines)}
+
+
+# ---------------------------------------------------------------------------
+# Post-generation ASR validation
+# ---------------------------------------------------------------------------
+
+
+def validate_asr(manifest, cfg, language="en", model_size="base"):
+    """Validate all generated lines by transcribing and comparing to input text.
+
+    Must run AFTER generate_missing and AFTER the TTS model is unloaded,
+    since Whisper needs its own VRAM.  Returns a dict with validation
+    results and a list of hashes that should be regenerated.
+
+    Args:
+        manifest: manifest dict (lines must have status=exists and files on disk)
+        cfg: EpisodeConfig instance
+        language: 2-letter language code for Whisper
+        model_size: Whisper model size (base, small, medium, large)
+
+    Returns:
+        {validated: int, failed_asr: int, regen_hashes: [str],
+         results: [{hash, speaker, text, transcription, issues}]}
+    """
+    from validate_tts import transcribe, check_hallucination
+
+    tts_dir = cfg.tts_dir()
+    lines = manifest["lines"]
+    validated = 0
+    failed_asr = 0
+    regen_hashes = []
+    results = []
+
+    total = sum(1 for info in lines.values() if info["status"] == STATUS_EXISTS)
+    logger.info("ASR validation: %d lines to check (model=%s)", total, model_size)
+
+    for i, (h, info) in enumerate(lines.items()):
+        if info["status"] != STATUS_EXISTS:
+            continue
+
+        wav_path = tts_dir / info["file"]
+        if not wav_path.exists():
+            continue
+
+        transcription = transcribe(str(wav_path), model_size=model_size,
+                                    language=language)
+        if transcription is None:
+            logger.warning("  ASR failed for %s — Whisper returned no output", info["file"])
+            results.append({
+                "hash": h, "speaker": info["speaker"],
+                "text": info["text"][:60], "transcription": None,
+                "issues": ["TRANSCRIPTION_FAILED"],
+            })
+            failed_asr += 1
+            regen_hashes.append(h)
+            continue
+
+        is_ok, issues = check_hallucination(info["text"], transcription)
+        if is_ok:
+            validated += 1
+        else:
+            failed_asr += 1
+            regen_hashes.append(h)
+            results.append({
+                "hash": h, "speaker": info["speaker"],
+                "text": info["text"][:60], "transcription": transcription[:60],
+                "issues": issues,
+            })
+            logger.warning(
+                "  [%d/%d] ASR MISMATCH %s (%s): %s",
+                i + 1, total, h, info["speaker"], "; ".join(issues),
+            )
+
+        if (validated + failed_asr) % 20 == 0:
+            logger.info("  ASR progress: %d/%d checked...", validated + failed_asr, total)
+
+    logger.info(
+        "ASR validation done: %d passed, %d failed, %d to regen",
+        validated, failed_asr, len(regen_hashes),
+    )
+    return {
+        "validated": validated,
+        "failed_asr": failed_asr,
+        "regen_hashes": regen_hashes,
+        "results": results,
+    }

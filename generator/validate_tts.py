@@ -47,6 +47,8 @@ def normalize_text(text):
 
 def check_hallucination(expected_text, transcribed_text):
     """Compare expected vs transcribed text. Returns (is_ok, issues)."""
+    if transcribed_text is None:
+        return False, ["TRANSCRIPTION_FAILED: Whisper returned no output"]
     expected_norm = normalize_text(expected_text)
     transcribed_norm = normalize_text(transcribed_text)
 
