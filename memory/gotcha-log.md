@@ -155,6 +155,26 @@
 **Root cause**: CUDA memory fragmentation after OOM errors. `torch.cuda.empty_cache()` is not called between failures. Also, another process (`nexusmind-scorer`) was holding 10GB, leaving insufficient headroom.
 **Fix**: (1) Check VRAM availability before starting generation. (2) Add `torch.cuda.empty_cache()` after each OOM failure in `generate_tts.py`. (3) Ensure exclusive GPU access during TTS runs.
 
+### Click suppression threshold too low for speech (2026-04-10)
+**Problem**: `click_threshold: 0.08` in `apply_clip_fades` was catching normal plosive consonants (p, t, k, s) and smoothing them into distortion. Debugged step-by-step: raw TTS clean, after trim clean, after normalize clean, after reverb clean, after click_fades → distorted.
+**Root cause**: The 0.08 threshold catches sample jumps that are normal speech transients at the onset of consonants (e.g. "S" in "So" had a 0.12 jump).
+**Fix**: Raised to 0.2. Only catches real clicks, not speech.
+
+### Boundary fade on silence pad doesn't help onset (2026-04-10)
+**Problem**: 25ms silence pad + 25ms linear fade = fade reaches 1.0 exactly where speech starts. Multiplying zero × ramp = still zero. The fade ramps through silence, not through the onset.
+**Root cause**: Fade and pad were same length — fade ended right at speech boundary.
+**Fix**: S-curve (raised cosine) fade that extends past the pad into speech (configurable overlap_ms). At speech onset the curve is ~0.35, ramping to 1.0 over 15ms. Also: asymmetric fades — full S-curve at head, short capped fade at tail (10% of clip max) so short clips like "Thanks." keep their final consonant.
+
+### ASR validation can't run inline during TTS generation (2026-04-10)
+**Problem**: Integrated Whisper ASR check into generate_missing — CUDA OOM because Qwen + Whisper don't fit in 16GB simultaneously.
+**Root cause**: Both models need GPU. Can't share VRAM on a single 16GB card.
+**Fix**: Reverted inline ASR. Added validate_asr() as a separate post-generation step that runs after TTS model is unloaded. The orchestrator (#41) should manage the load/unload/validate/regen cycle.
+
+### Post-assembly section crossfade was destroying speech (2026-04-10)
+**Problem**: Section crossfade (jump_thresh=0.01) was triggering on normal within-word consonant gaps, multiplying speech by 0.5 throughout. Every version of this approach damaged audio.
+**Root cause**: Any sample-level analysis over full assembled audio will hit speech transients. The per-clip boundary fades already handle clip edges.
+**Fix**: Removed entirely. Per-clip S-curve fades are sufficient.
+
 ## Promoted
 
 <!-- Track gotchas that have been promoted to topic files or the memory index.
