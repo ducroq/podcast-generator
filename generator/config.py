@@ -172,13 +172,21 @@ class EpisodeConfig:
         return self.work_dir() / "sections"
 
     def backchannels_dir(self):
-        """Work subdirectory for raw backchannel clips."""
-        return self.work_dir() / "backchannels"
+        """Podcast-level directory for raw backchannel clips.
+
+        BC clips are cast-specific (not episode-specific) — generated once
+        per voice and reused across episodes.  Defaults to 'backchannels/'
+        relative to podcasts/ root.  Override with 'backchannels_dir' in
+        podcast.yaml.
+        """
+        rel = self._data.get("backchannels_dir", "backchannels")
+        return self.resolve_path(rel)
 
     def processed_backchannels_dir(self):
-        """Work subdirectory for processed backchannel clips (faded, click-suppressed).
+        """Subdirectory for processed backchannel clips (faded, click-suppressed).
 
         Step 5 (mix) should read BC clips from here, not backchannels_dir().
+        Processed copies are cached here — regenerated only if source changes.
         """
         return self.backchannels_dir() / "processed"
 

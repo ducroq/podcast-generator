@@ -355,8 +355,8 @@ class TestFullPipelineHappyPath:
         assert (work / "tts").is_dir()
         assert (work / "lines").is_dir()
         assert (work / "sections").is_dir()
-        assert (work / "backchannels").is_dir()
-        assert (work / "backchannels" / "processed").is_dir()
+        assert cfg.backchannels_dir().is_dir()
+        assert cfg.processed_backchannels_dir().is_dir()
         assert (work / "mix.wav").is_file()
 
         # Count files
@@ -467,6 +467,7 @@ class TestManifestConsistency:
 
         entries = parse_script(cfg.script_path())
         manifest = build_manifest(entries, script_path=str(cfg.script_path()), episode="smoke")
+        manifest_path.parent.mkdir(parents=True, exist_ok=True)
         save_manifest(manifest, manifest_path)
 
         # After generation
