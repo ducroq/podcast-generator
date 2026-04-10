@@ -481,51 +481,6 @@ def generate_missing(manifest, cfg, dry_run=False):
                             except Exception:
                                 break
 
-                        # ASR validation — transcribe and compare against input
-                        # Catches truncated words, hallucinated text, garbled output
-                        try:
-                            from validate_tts import transcribe, check_hallucination
-                            transcription = transcribe(str(out_path) if out_path.exists()
-                                                       else None, language=language[:2].lower())
-                            if transcription is None:
-                                # Write first so we can transcribe
-                                sf.write(str(out_path), audio, target_sr)
-                                transcription = transcribe(str(out_path), language=language[:2].lower())
-
-                            if transcription is not None:
-                                asr_ok, asr_issues = check_hallucination(info["text"], transcription)
-                                if not asr_ok:
-                                    asr_retries = 0
-                                    max_asr_retries = 2
-                                    while not asr_ok and asr_retries < max_asr_retries:
-                                        asr_retries += 1
-                                        retry_temp = max(0.3, line_tts_config.get("temperature", 0.7) - asr_retries * 0.1)
-                                        logger.warning(
-                                            "  ASR MISMATCH: %s, retry %d/%d (temp=%.2f)",
-                                            "; ".join(asr_issues), asr_retries, max_asr_retries, retry_temp,
-                                        )
-                                        retry_cfg = {**line_tts_config, "temperature": retry_temp}
-                                        try:
-                                            audio2, sr2 = adapter.generate(
-                                                info["text"], voice_ref, ref_text,
-                                                language=language, **retry_cfg,
-                                            )
-                                            audio2 = _resample_if_needed(audio2, sr2, target_sr)
-                                            sf.write(str(out_path), audio2, target_sr)
-                                            t2 = transcribe(str(out_path), language=language[:2].lower())
-                                            if t2 is not None:
-                                                ok2, issues2 = check_hallucination(info["text"], t2)
-                                                if ok2 or len(issues2) < len(asr_issues):
-                                                    audio = audio2
-                                                    asr_ok = ok2
-                                                    asr_issues = issues2 if not ok2 else []
-                                        except Exception:
-                                            break
-                                    if not asr_ok:
-                                        logger.warning("  ASR still mismatched after retries: %s", "; ".join(asr_issues))
-                        except ImportError:
-                            pass  # faster-whisper not installed — skip ASR validation
-
                         sf.write(str(out_path), audio, target_sr)
                         duration = len(audio) / target_sr
                         info["status"] = STATUS_EXISTS
