@@ -578,14 +578,25 @@ def mix_episode(manifest, cfg, output_path=None, intro_voice=None, seed=42):
         sf.write(str(section_path), section_audio, sr)
         logger.info("  %s: %.1fs -> %s", name, len(section_audio) / sr, section_path.name)
 
-    # Assemble from already-built sections (no double-building)
-    first_name = sections[0][0]
-    cold_open = section_audios[first_name]
+    # Assemble from already-built sections.
+    # If an INTRO section exists, use it as the intro voice (over music bed).
+    # The first non-INTRO section is the cold open (sting plays after it).
+    section_names_list = [name for name, _ in sections]
+    body_sections = [(n, e) for n, e in sections if n.upper() != "INTRO"]
 
-    # Main conversation: concatenate remaining sections with section pauses
+    # Extract intro voice from INTRO section if present
+    if "INTRO" in section_audios:
+        auto_intro = section_audios["INTRO"]
+        if intro_voice is None or len(intro_voice) == 0:
+            intro_voice = auto_intro
+            logger.info("Using INTRO section as intro voice (%.1fs)", len(auto_intro) / sr)
+
+    cold_open = section_audios[body_sections[0][0]] if body_sections else np.array([], dtype=np.float32)
+
+    # Main conversation: everything after cold open
     section_pause_dur = mix_cfg.get("section_pause", 1.0)
     main_parts = []
-    for name, _ in sections[1:]:
+    for name, _ in body_sections[1:]:
         if main_parts:
             main_parts.append(np.zeros(int(sr * section_pause_dur), dtype=np.float32))
         main_parts.append(section_audios[name])
