@@ -173,7 +173,7 @@ def _generate_with_guard(adapter, text, voice_ref, ref_text, language,
     temp = tts_config.get("temperature", 0.7)
     rep_penalty = tts_config.get("repetition_penalty", 1.2)
     max_per_word = retry_config.get("max_duration_per_word", 0.6)
-    retry_count = retry_config.get("retry_count", 3)
+    retry_count = min(retry_config.get("retry_count", 3), 10)
     retry_temp = retry_config.get("retry_temperature", 0.4)
     retry_rep = retry_config.get("retry_repetition_penalty", 1.3)
 

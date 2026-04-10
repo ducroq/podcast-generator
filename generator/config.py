@@ -141,7 +141,17 @@ class EpisodeConfig:
     # ----- Paths -----
 
     def resolve_path(self, relative_path):
-        """Resolve a path relative to the config base directory (podcasts/)."""
+        """Resolve a path relative to the config base directory (podcasts/).
+
+        Rejects paths that escape the base directory (path traversal guard).
+        """
+        resolved = (self._base_dir / relative_path).resolve()
+        base = self._base_dir.resolve()
+        if not str(resolved).startswith(str(base)):
+            raise ValueError(
+                f"Path escapes base directory: {relative_path!r} "
+                f"(resolved to {resolved}, base is {base})"
+            )
         return self._base_dir / relative_path
 
     def script_path(self):
