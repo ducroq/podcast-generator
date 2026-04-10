@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 REQUIRED_PODCAST_KEYS = {"podcast", "tts", "mix", "cast", "music"}
 REQUIRED_EPISODE_KEYS = {"episode", "podcast", "script"}
-VALID_ENGINES = {"qwen", "chatterbox", "elevenlabs"}
+VALID_ENGINES = {"qwen", "chatterbox", "elevenlabs"}  # elevenlabs uses separate API workflow
 
 
 def _deep_merge(base, override):

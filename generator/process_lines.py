@@ -364,11 +364,15 @@ def check_onset_quality(audio, sr, threshold_db=-35,
 def check_all_onsets(manifest, cfg):
     """Check onset quality for all TTS lines.
 
+    Uses thresholds from processing config so detection sensitivity
+    matches the smoother settings.
+
     Returns:
         dict with {clean: int, flagged: int, flags: [{hash, speaker, text, issues, metrics}]}
     """
     tts_dir = cfg.tts_dir()
     target_sr = cfg.mix.get("target_sr", 24000)
+    p = cfg.processing
     lines = manifest["lines"]
     flags = []
     clean = 0
@@ -386,7 +390,11 @@ def check_all_onsets(manifest, cfg):
         if file_sr != target_sr:
             audio = resample(audio, int(len(audio) * target_sr / file_sr)).astype(np.float32)
 
-        result = check_onset_quality(audio, target_sr)
+        result = check_onset_quality(
+            audio, target_sr,
+            threshold_db=p.get("trim_threshold_db", -35),
+            min_silence_ms=p.get("min_pad_ms", 25) / 5,  # flag if < 1/5 of pad
+        )
         if result["clean"]:
             clean += 1
         else:

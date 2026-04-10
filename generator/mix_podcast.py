@@ -25,7 +25,7 @@ from pathlib import Path
 
 import numpy as np
 import soundfile as sf
-from scipy.signal import fftconvolve, lfilter
+from scipy.signal import lfilter
 
 from manifest import STATUS_EXISTS
 
@@ -411,18 +411,6 @@ def build_intro_with_music(intro_voice, music_bed, sr, music_cfg):
     music_bleed = music_track[intro_voice_len:]
 
     return intro_section, music_bleed
-
-
-def build_intro_voice(manifest, lines_dir, sr):
-    """Build intro voiceover by concatenating intro lines from the manifest.
-
-    Intro lines are identified by having section=None (before any section header)
-    or by being loaded from a separate intro_lines file. For now, this function
-    returns an empty array — intro voice assembly from manifest is a future
-    enhancement. The caller can pass pre-built intro voice to mix_episode().
-    """
-    # Future: filter manifest for intro lines and concatenate
-    return np.array([], dtype=np.float32)
 
 
 # ---------------------------------------------------------------------------
