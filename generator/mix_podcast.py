@@ -108,6 +108,8 @@ def load_bc_clips(cfg, target_sr):
     total = sum(len(v) for t in bc_clips.values() for v in t.values())
     if total:
         logger.info("Loaded %d backchannel clips", total)
+    else:
+        logger.warning("No backchannel clips found — [react:] cues will be silent")
     return bc_clips
 
 
@@ -342,7 +344,7 @@ def build_intro_with_music(intro_voice, music_bed, sr, music_cfg):
     music_solo_samples = int(sr * music_solo)
     post_voice_samples = int(sr * post_voice)
     bleed_samples = int(sr * bleed)
-    pause_samples = int(sr * 1.5)
+    pause_samples = int(sr * music_cfg.get("pause_after_voice", 1.5))
 
     intro_voice_len = music_solo_samples + len(intro_voice) + post_voice_samples
     music_total_len = intro_voice_len + pause_samples + bleed_samples
@@ -612,7 +614,7 @@ def mix_episode(manifest, cfg, output_path=None, intro_voice=None, seed=42):
 
     # Prepend intro + music bleed
     if len(intro_section) > 0:
-        pause_after_intro = np.zeros(int(sr * 1.5), dtype=np.float32)
+        pause_after_intro = np.zeros(int(sr * mix_cfg.get("pause_after_intro", 1.5)), dtype=np.float32)
         bleed_len = min(len(music_bleed), len(pause_after_intro) + len(episode_body))
         body_with_pause = np.concatenate([pause_after_intro, episode_body])
         body_with_pause[:bleed_len] += music_bleed[:bleed_len]
@@ -626,6 +628,7 @@ def mix_episode(manifest, cfg, output_path=None, intro_voice=None, seed=42):
     room_mask = np.ones(len(full), dtype=np.float32) * room_tone_level
     fade_samples = min(int(sr * 2.0), len(full))
     room_mask[:fade_samples] *= np.linspace(0, 1, fade_samples, dtype=np.float32)
+    room_mask[-fade_samples:] *= np.linspace(1, 0, fade_samples, dtype=np.float32)
     full = full + pink * room_mask
 
     # Peak limiting

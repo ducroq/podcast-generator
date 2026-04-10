@@ -95,9 +95,11 @@ Alex: Another line from Alex.
 
 
 def _make_audio(sr=24000, duration=1.5):
-    """Create a short test audio array."""
-    samples = int(sr * duration)
-    return np.random.randn(samples).astype(np.float32) * 0.1
+    """Create a short test audio array with clean onset (silence prefix)."""
+    pad = int(sr * 0.02)  # 20ms silence so onset check passes
+    samples = max(1, int(sr * duration) - pad)
+    audio = np.random.randn(samples).astype(np.float32) * 0.1
+    return np.concatenate([np.zeros(pad, dtype=np.float32), audio])
 
 
 @pytest.fixture

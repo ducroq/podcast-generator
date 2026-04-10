@@ -255,21 +255,26 @@ def process_one(audio, sr, volume_db, room_ir, processing_cfg, reverb_mix=0.02):
         click_threshold=p.get("click_threshold", 0.08),
         click_smooth_samples=p.get("click_smooth_samples", 7),
     )
-    # Boundary fade: S-curve (raised cosine) through the silence pad
-    # and into speech onset.  The S-curve stays near zero longer than
-    # a linear ramp, then rises quickly — smoothing Qwen's hard onsets
-    # without audibly fading in.
+    # Boundary fade: S-curve (raised cosine) at head and tail.
+    # Head fade is pad + overlap to smooth Qwen's hard onsets.
+    # Tail fade is just the pad — capped to 10% of clip length
+    # so short clips like "Thanks." don't lose their final consonant.
     pad_ms = p.get("min_pad_ms", 25)
     overlap_ms = p.get("boundary_overlap_ms", 15)
-    fade = int(sr * (pad_ms + overlap_ms) / 1000)
-    fade = max(fade, int(sr * 0.005))
+    fade_in = int(sr * (pad_ms + overlap_ms) / 1000)
+    fade_out = int(sr * pad_ms / 1000)
+    # Cap tail fade to 10% of clip
+    fade_out = min(fade_out, len(audio) // 10)
+    fade_in = max(fade_in, int(sr * 0.005))
+    fade_out = max(fade_out, int(sr * 0.005))
 
-    if len(audio) > 2 * fade:
-        # S-curve: 0.5 * (1 - cos(pi * t))  — slow start, fast middle, soft landing
-        t = np.linspace(0, 1, fade, dtype=np.float32)
-        scurve = 0.5 * (1 - np.cos(np.pi * t))
-        audio[:fade] *= scurve
-        audio[-fade:] *= scurve[::-1]
+    if len(audio) > fade_in + fade_out:
+        t_in = np.linspace(0, 1, fade_in, dtype=np.float32)
+        t_out = np.linspace(0, 1, fade_out, dtype=np.float32)
+        scurve_in = 0.5 * (1 - np.cos(np.pi * t_in))
+        scurve_out = 0.5 * (1 - np.cos(np.pi * t_out))
+        audio[:fade_in] *= scurve_in
+        audio[-fade_out:] *= scurve_out[::-1]
     return audio
 
 

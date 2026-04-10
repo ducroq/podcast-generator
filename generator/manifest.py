@@ -168,6 +168,7 @@ def parse_script(path, beat_pause=DEFAULT_BEAT_PAUSE):
                     else:
                         duration = beat_pause
                     entries.append({"type": "pause", "duration": duration})
+                    continue
                 # Other bracketed lines (stage directions) are ignored
                 logger.debug("Dropping stage direction: %s", stripped)
                 continue

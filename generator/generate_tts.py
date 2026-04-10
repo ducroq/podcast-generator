@@ -26,6 +26,7 @@ import numpy as np
 import soundfile as sf
 
 from manifest import STATUS_EXISTS, STATUS_FAILED, STATUS_MISSING
+from process_lines import check_onset_quality
 
 logger = logging.getLogger(__name__)
 
@@ -42,10 +43,16 @@ def estimate_max_duration(text, max_per_word=0.6, floor=10.0):
 
 
 def _is_hallucinated(audio, sr, text, max_per_word=0.6):
-    """Check if generated audio is unreasonably long (hallucination)."""
+    """Check if generated audio is unreasonably long or silent (hallucination)."""
     duration = len(audio) / sr
     max_dur = estimate_max_duration(text, max_per_word)
-    return duration > max_dur, duration, max_dur
+    if duration > max_dur:
+        return True, duration, max_dur
+    # All-silence detection: if RMS is near zero, Qwen generated nothing useful
+    rms = float(np.sqrt(np.mean(audio ** 2)))
+    if rms < 0.001 and len(text.split()) > 0:
+        return True, duration, max_dur
+    return False, duration, max_dur
 
 
 # ---------------------------------------------------------------------------
@@ -456,22 +463,22 @@ def generate_missing(manifest, cfg, dry_run=False):
                         audio = _resample_if_needed(audio, sr, target_sr)
 
                         # Onset quality check — regen if hard onset detected
-                        from process_lines import check_onset_quality
                         onset = check_onset_quality(audio, target_sr)
                         onset_retries = 0
                         max_onset_retries = 2
-                        while not onset["clean"] and "hard_onset" in str(onset["issues"]) and onset_retries < max_onset_retries:
+                        while not onset["clean"] and any("hard_onset" in i for i in onset["issues"]) and onset_retries < max_onset_retries:
                             onset_retries += 1
                             retry_temp = max(0.3, line_tts_config.get("temperature", 0.7) - onset_retries * 0.15)
                             logger.warning(
                                 "  HARD ONSET (rms=%.3f), retry %d/%d (temp=%.2f)",
                                 onset["metrics"]["attack_rms"], onset_retries, max_onset_retries, retry_temp,
                             )
-                            retry_cfg = {**line_tts_config, "temperature": retry_temp}
                             try:
                                 audio2, sr2 = adapter.generate(
                                     info["text"], voice_ref, ref_text,
-                                    language=language, **retry_cfg,
+                                    language=language,
+                                    temperature=retry_temp,
+                                    repetition_penalty=line_tts_config.get("repetition_penalty", 1.2),
                                 )
                                 audio2 = _resample_if_needed(audio2, sr2, target_sr)
                                 onset2 = check_onset_quality(audio2, target_sr)
@@ -584,9 +591,12 @@ def validate_asr(manifest, cfg, language="en", model_size="base"):
         if (validated + failed_asr) % 20 == 0:
             logger.info("  ASR progress: %d/%d checked...", validated + failed_asr, total)
 
+    checked = validated + failed_asr
+    if total > 0 and checked == 0:
+        logger.warning("ASR validation: %d lines expected but no WAV files found on disk!", total)
     logger.info(
-        "ASR validation done: %d passed, %d failed, %d to regen",
-        validated, failed_asr, len(regen_hashes),
+        "ASR validation done: %d/%d checked, %d passed, %d failed, %d to regen",
+        checked, total, validated, failed_asr, len(regen_hashes),
     )
     return {
         "validated": validated,

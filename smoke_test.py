@@ -193,7 +193,7 @@ def main():
 
     # 3. Generate TTS (mock)
     logger.info("\n--- Stage 3: Generate TTS (synthetic) ---")
-    with patch.dict(ADAPTERS, {"qwen": SpeechMockAdapter}):
+    with patch.dict(ADAPTERS, {"qwen": SpeechMockAdapter, "chatterbox": SpeechMockAdapter}):
         gen_result = generate_missing(manifest, cfg)
     logger.info("Generated: %d, Skipped: %d, Failed: %d",
                 gen_result["generated"], gen_result["skipped"], gen_result["failed"])
