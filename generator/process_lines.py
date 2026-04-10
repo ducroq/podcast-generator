@@ -247,15 +247,8 @@ def process_one(audio, sr, volume_db, room_ir, processing_cfg, reverb_mix=0.02):
     audio = rms_normalize(audio, target_rms=p.get("rms_target", 0.1))
     audio = apply_speaker_volume(audio, volume_db)
     audio = apply_reverb(audio, room_ir, mix=reverb_mix)
-    audio = apply_clip_fades(
-        audio, sr,
-        fade_in_ms=p.get("fade_in_ms", 35),
-        fade_out_ms=p.get("fade_out_ms", 20),
-        click_check_ms=p.get("click_check_ms", 50),
-        click_threshold=p.get("click_threshold", 0.08),
-        click_smooth_samples=p.get("click_smooth_samples", 7),
-    )
     # Boundary fade: S-curve (raised cosine) at head and tail.
+    # Replaces the old apply_clip_fades which damaged speech transients.
     # Head fade is pad + overlap to smooth Qwen's hard onsets.
     # Tail fade is just the pad — capped to 10% of clip length
     # so short clips like "Thanks." don't lose their final consonant.
