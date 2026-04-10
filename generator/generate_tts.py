@@ -454,6 +454,33 @@ def generate_missing(manifest, cfg, dry_run=False):
 
                     if audio is not None:
                         audio = _resample_if_needed(audio, sr, target_sr)
+
+                        # Onset quality check — regen if hard onset detected
+                        from process_lines import check_onset_quality
+                        onset = check_onset_quality(audio, target_sr)
+                        onset_retries = 0
+                        max_onset_retries = 2
+                        while not onset["clean"] and "hard_onset" in str(onset["issues"]) and onset_retries < max_onset_retries:
+                            onset_retries += 1
+                            retry_temp = max(0.3, line_tts_config.get("temperature", 0.7) - onset_retries * 0.15)
+                            logger.warning(
+                                "  HARD ONSET (rms=%.3f), retry %d/%d (temp=%.2f)",
+                                onset["metrics"]["attack_rms"], onset_retries, max_onset_retries, retry_temp,
+                            )
+                            retry_cfg = {**line_tts_config, "temperature": retry_temp}
+                            try:
+                                audio2, sr2 = adapter.generate(
+                                    info["text"], voice_ref, ref_text,
+                                    language=language, **retry_cfg,
+                                )
+                                audio2 = _resample_if_needed(audio2, sr2, target_sr)
+                                onset2 = check_onset_quality(audio2, target_sr)
+                                if onset2["clean"] or onset2["metrics"]["attack_rms"] < onset["metrics"]["attack_rms"]:
+                                    audio = audio2
+                                    onset = onset2
+                            except Exception:
+                                break
+
                         sf.write(str(out_path), audio, target_sr)
                         duration = len(audio) / target_sr
                         info["status"] = STATUS_EXISTS
