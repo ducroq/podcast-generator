@@ -29,7 +29,7 @@ from config import load_episode_config
 from generate_tts import generate_missing, ADAPTERS
 from manifest import (
     build_manifest, line_count, load_manifest, missing_lines, parse_script,
-    save_manifest, section_names,
+    save_manifest, section_names, validate_script_for_tts,
 )
 from mix_podcast import mix_episode
 from process_lines import check_all_onsets
@@ -174,6 +174,10 @@ def main():
     # 2. Parse script + build manifest
     logger.info("\n--- Stage 2: Parse + Manifest ---")
     entries = parse_script(cfg.script_path())
+    tts_flags = validate_script_for_tts(entries)
+    if tts_flags["flagged"] > 0:
+        logger.info("TTS validation: %d/%d lines flagged (advisory)",
+                     tts_flags["flagged"], tts_flags["clean"] + tts_flags["flagged"])
     manifest = build_manifest(
         entries,
         audio_dir=cfg.tts_dir(),
