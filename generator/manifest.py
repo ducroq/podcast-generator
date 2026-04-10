@@ -331,6 +331,82 @@ def load_manifest(path):
 # ---------------------------------------------------------------------------
 
 
+def validate_script_for_tts(entries, max_words=35):
+    """Check parsed script entries for lines that may produce poor TTS prosody.
+
+    Flags lines that are too long, contain multiple emotional beats, or have
+    excessive pauses. This is advisory — flagged lines are not blocked, just
+    logged as warnings for manual review.
+
+    Args:
+        entries: list of entry dicts from parse_script()
+        max_words: word-count threshold for "long" flag (default 35)
+
+    Returns:
+        dict with {clean: int, flagged: int, flags: [{speaker, text, emotion, word_count, issues}]}
+    """
+    flags = []
+    clean = 0
+    _TRANSITION_WORDS = {"then", "but", "to", "and"}
+
+    for entry in entries:
+        if entry["type"] != "line":
+            continue
+
+        text = entry["text"]
+        word_count = len(text.split())
+        emotion = entry.get("emotion")
+        issues = []
+
+        # Long lines produce flat prosody
+        if word_count > max_words:
+            issues.append("long")
+
+        # Multiple emotion beats in a single tag: "amused, then dry"
+        if emotion:
+            lower_emotion = emotion.lower()
+            if "," in lower_emotion:
+                parts = [p.strip() for p in lower_emotion.split(",")]
+                for part in parts:
+                    first_word = part.split()[0] if part.split() else ""
+                    if first_word in _TRANSITION_WORDS:
+                        issues.append("multi_emotion")
+                        break
+
+        # Many pauses (3+ ellipses) — TTS engines struggle with timing
+        if text.count("...") >= 3:
+            issues.append("many_pauses")
+
+        # Combination: long AND 2+ pauses — strong candidate for splitting
+        if "long" in issues and text.count("...") >= 2:
+            issues.append("split_candidate")
+
+        if issues:
+            flags.append({
+                "speaker": entry["speaker"],
+                "text": text,
+                "emotion": emotion,
+                "word_count": word_count,
+                "issues": issues,
+            })
+            logger.warning(
+                "TTS flag [%s] %s (%d words): %s",
+                entry["speaker"], ", ".join(issues), word_count,
+                text[:80] + ("..." if len(text) > 80 else ""),
+            )
+        else:
+            clean += 1
+
+    result = {"clean": clean, "flagged": len(flags), "flags": flags}
+    if flags:
+        logger.info(
+            "Script validation: %d clean, %d flagged", clean, len(flags),
+        )
+    else:
+        logger.info("Script validation: all %d lines clean", clean)
+    return result
+
+
 def line_count(manifest):
     """Count spoken lines in manifest."""
     return len(manifest["lines"])

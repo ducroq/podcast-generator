@@ -19,6 +19,7 @@ from manifest import (
     missing_lines,
     lines_to_generate,
     section_names,
+    validate_script_for_tts,
     _sanitize_speaker,
 )
 
@@ -518,3 +519,120 @@ class TestManifestIO:
         path.write_text('[{"file": "test.wav"}]', encoding="utf-8")
         with pytest.raises(ValueError, match="Invalid manifest format"):
             load_manifest(path)
+
+
+# ---------------------------------------------------------------------------
+# TTS script validation
+# ---------------------------------------------------------------------------
+
+
+class TestValidateScriptForTts:
+    def test_clean_lines_not_flagged(self):
+        """Short lines with simple emotions pass cleanly."""
+        entries = [
+            {"type": "line", "speaker": "alex", "text": "Yeah, that makes sense.", "emotion": "thoughtful"},
+            {"type": "line", "speaker": "morgan", "text": "I agree.", "emotion": "dry"},
+        ]
+        result = validate_script_for_tts(entries)
+        assert result["clean"] == 2
+        assert result["flagged"] == 0
+        assert result["flags"] == []
+
+    def test_long_line_flagged(self):
+        """Lines exceeding max_words are flagged as long."""
+        long_text = " ".join(["word"] * 40)
+        entries = [
+            {"type": "line", "speaker": "alex", "text": long_text, "emotion": None},
+        ]
+        result = validate_script_for_tts(entries, max_words=35)
+        assert result["flagged"] == 1
+        assert "long" in result["flags"][0]["issues"]
+        assert result["flags"][0]["word_count"] == 40
+
+    def test_custom_max_words(self):
+        """Custom max_words threshold is respected."""
+        text = " ".join(["word"] * 20)
+        entries = [
+            {"type": "line", "speaker": "alex", "text": text, "emotion": None},
+        ]
+        # Should flag at 15, not at 25
+        result_flag = validate_script_for_tts(entries, max_words=15)
+        result_clean = validate_script_for_tts(entries, max_words=25)
+        assert result_flag["flagged"] == 1
+        assert result_clean["flagged"] == 0
+
+    def test_multi_emotion_flagged(self):
+        """Emotion tags with comma + transition word are flagged."""
+        entries = [
+            {"type": "line", "speaker": "morgan", "text": "Sure.", "emotion": "amused, then dry"},
+        ]
+        result = validate_script_for_tts(entries)
+        assert result["flagged"] == 1
+        assert "multi_emotion" in result["flags"][0]["issues"]
+
+    def test_multi_emotion_variants(self):
+        """Various transition words trigger multi_emotion."""
+        for transition in ["but", "to", "and", "then"]:
+            entries = [
+                {"type": "line", "speaker": "alex", "text": "Ok.",
+                 "emotion": f"warm, {transition} sharp"},
+            ]
+            result = validate_script_for_tts(entries)
+            assert result["flagged"] == 1, f"transition '{transition}' not caught"
+            assert "multi_emotion" in result["flags"][0]["issues"]
+
+    def test_simple_comma_emotion_not_flagged(self):
+        """Comma without transition word is not flagged (e.g. 'warm, quiet')."""
+        entries = [
+            {"type": "line", "speaker": "alex", "text": "Ok.", "emotion": "warm, quiet"},
+        ]
+        result = validate_script_for_tts(entries)
+        assert result["flagged"] == 0
+
+    def test_many_pauses_flagged(self):
+        """Lines with 3+ ellipses are flagged."""
+        entries = [
+            {"type": "line", "speaker": "zara", "text": "Well... I mean... it's just... yeah.", "emotion": None},
+        ]
+        result = validate_script_for_tts(entries)
+        assert result["flagged"] == 1
+        assert "many_pauses" in result["flags"][0]["issues"]
+
+    def test_split_candidate_flagged(self):
+        """Long line with 2+ pauses gets split_candidate."""
+        long_with_pauses = " ".join(["word"] * 36) + "... something... else"
+        entries = [
+            {"type": "line", "speaker": "alex", "text": long_with_pauses, "emotion": None},
+        ]
+        result = validate_script_for_tts(entries, max_words=35)
+        assert result["flagged"] == 1
+        issues = result["flags"][0]["issues"]
+        assert "long" in issues
+        assert "split_candidate" in issues
+
+    def test_non_line_entries_ignored(self):
+        """Pauses, backchannels, section breaks are skipped."""
+        entries = [
+            {"type": "pause", "duration": 1.5},
+            {"type": "backchannel", "reactor": "zara", "bc_type": "laugh"},
+            {"type": "section_break", "from_section": "A", "to_section": "B"},
+        ]
+        result = validate_script_for_tts(entries)
+        assert result["clean"] == 0
+        assert result["flagged"] == 0
+
+    def test_no_emotion_not_flagged_as_multi(self):
+        """Lines with no emotion tag don't trigger multi_emotion."""
+        entries = [
+            {"type": "line", "speaker": "alex", "text": "Hello.", "emotion": None},
+        ]
+        result = validate_script_for_tts(entries)
+        assert result["flagged"] == 0
+
+    def test_with_parsed_script(self, script_file):
+        """Validation works on real parse_script output."""
+        entries = parse_script(script_file)
+        result = validate_script_for_tts(entries)
+        # SAMPLE_SCRIPT has short lines, so all should be clean
+        assert result["clean"] + result["flagged"] > 0
+        assert isinstance(result["flags"], list)
