@@ -155,7 +155,7 @@
 **Root cause**: CUDA memory fragmentation after OOM errors. `torch.cuda.empty_cache()` is not called between failures. Also, another process (`nexusmind-scorer`) was holding 10GB, leaving insufficient headroom.
 **Fix**: (1) Check VRAM availability before starting generation. (2) Add `torch.cuda.empty_cache()` after each OOM failure in `generate_tts.py`. (3) Ensure exclusive GPU access during TTS runs.
 
-### Click suppression threshold too low for speech (2026-04-10)
+### Click suppression threshold too low for speech [RESOLVED] (2026-04-10)
 **Problem**: `click_threshold: 0.08` in `apply_clip_fades` was catching normal plosive consonants (p, t, k, s) and smoothing them into distortion. Debugged step-by-step: raw TTS clean, after trim clean, after normalize clean, after reverb clean, after click_fades → distorted.
 **Root cause**: The 0.08 threshold catches sample jumps that are normal speech transients at the onset of consonants (e.g. "S" in "So" had a 0.12 jump).
 **Fix**: Raised to 0.2. Only catches real clicks, not speech.
@@ -170,10 +170,15 @@
 **Root cause**: Both models need GPU. Can't share VRAM on a single 16GB card.
 **Fix**: Reverted inline ASR. Added validate_asr() as a separate post-generation step that runs after TTS model is unloaded. The orchestrator (#41) should manage the load/unload/validate/regen cycle.
 
-### Post-assembly section crossfade was destroying speech (2026-04-10)
+### Post-assembly section crossfade was destroying speech [RESOLVED] (2026-04-10)
 **Problem**: Section crossfade (jump_thresh=0.01) was triggering on normal within-word consonant gaps, multiplying speech by 0.5 throughout. Every version of this approach damaged audio.
 **Root cause**: Any sample-level analysis over full assembled audio will hit speech transients. The per-clip boundary fades already handle clip edges.
 **Fix**: Removed entirely. Per-clip S-curve fades are sufficient.
+
+### Path traversal guard broke voice_refs symlink (2026-04-10)
+**Problem**: `resolve_path()` using `.resolve()` follows symlinks, so `voice_refs → ~/voice_refs` resolved outside the base dir and was rejected.
+**Root cause**: Security guard was too strict — `.resolve()` canonicalizes symlinks.
+**Fix**: Check for `..` in path components instead of resolved path containment. Blocks traversal without breaking symlinks.
 
 ## Promoted
 
@@ -191,3 +196,5 @@
 | ffmpeg filter graphs must be e2e tested | `tests/test_add_realism.py::TestEndToEndFilterGraph` | 2026-04-04 |
 | Path traversal guard on all manifest-driven paths | Pattern: copy guard from `validate_tts.py:validate_manifest` | 2026-04-07 |
 | Temp files need try/finally cleanup | Pattern: always wrap `NamedTemporaryFile(delete=False)` in try/finally | 2026-04-07 |
+| Audio processing must not touch speech | Pattern: never apply sample-level smoothing to assembled speech; only operate on silence/boundary regions. Click suppression, section crossfade, and onset smoother all failed at this. | 2026-04-10 |
+| GPU server needs unified env | Pattern: use one venv or Docker for all GPU work (TTS + ASR + fallback). Issue #48. | 2026-04-10 |
