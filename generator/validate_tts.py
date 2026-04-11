@@ -242,6 +242,18 @@ def validate_single(audio_path, expected_text, language="en", ref_path=None,
                          f"(confidence: {quality.get('language_confidence', '?')})")
             result["status"] = "FLAGGED"
 
+    # Optional click detection (Essentia, Linux only)
+    try:
+        from detect_clicks_essentia import detect_clicks, _HAS_ESSENTIA
+        if _HAS_ESSENTIA:
+            clicks = detect_clicks(audio_path)
+            if clicks:
+                result["clicks"] = clicks
+                issues.append(f"CLICKS_DETECTED: {len(clicks)} click(s)")
+                result["status"] = "FLAGGED"
+    except ImportError:
+        pass
+
     return result
 
 
