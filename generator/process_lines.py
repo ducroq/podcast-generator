@@ -376,10 +376,18 @@ def process_one(audio, sr, volume_db, room_ir, processing_cfg, reverb_mix=0.02):
     overlap_ms = p.get("boundary_overlap_ms", 15)
     fade_in = int(sr * (pad_ms + overlap_ms) / 1000)
     fade_out = int(sr * pad_ms / 1000)
-    # Cap tail fade to 10% of clip
-    fade_out = min(fade_out, len(audio) // 10)
-    fade_in = max(fade_in, int(sr * 0.005))
-    fade_out = max(fade_out, int(sr * 0.005))
+    # Cap fades based on clip length — short clips get minimal fades
+    # to avoid eating final consonants ("they", "Yeah")
+    clip_dur = len(audio) / sr
+    if clip_dur < 0.5:
+        # Ultra-short clips: 3ms micro-fade only (click suppression)
+        fade_in = int(sr * 0.003)
+        fade_out = int(sr * 0.003)
+    else:
+        # Normal clips: cap tail to 5% of clip length
+        fade_out = min(fade_out, len(audio) // 20)
+        fade_in = max(fade_in, int(sr * 0.005))
+        fade_out = max(fade_out, int(sr * 0.005))
 
     if len(audio) > fade_in + fade_out:
         t_in = np.linspace(0, 1, fade_in, dtype=np.float32)
@@ -388,6 +396,14 @@ def process_one(audio, sr, volume_db, room_ir, processing_cfg, reverb_mix=0.02):
         scurve_out = 0.5 * (1 - np.cos(np.pi * t_out))
         audio[:fade_in] *= scurve_in
         audio[-fade_out:] *= scurve_out[::-1]
+
+    # Peak safety cap — prevent clipping after the full chain
+    # (normalization + speaker volume + reverb can push peaks above 1.0)
+    peak_ceiling = p.get("peak_ceiling", 0.9)
+    peak = np.max(np.abs(audio))
+    if peak > peak_ceiling:
+        audio = (audio * (peak_ceiling / peak)).astype(np.float32)
+
     return audio
 
 
