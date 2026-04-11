@@ -119,9 +119,20 @@ def load_bc_clips(cfg, target_sr):
     return bc_clips
 
 
+_BC_TYPE_FALLBACK = {"huh": "breath", "hmm": "breath", "gasp": "breath"}
+
+
 def _pick_bc_clip(bc_clips, reactor, bc_type, rng):
-    """Pick a random backchannel clip for a reactor+type."""
+    """Pick a random backchannel clip for a reactor+type.
+
+    Falls back to related types if exact match not available
+    (e.g. huh -> breath).
+    """
     clips = bc_clips.get(bc_type, {}).get(reactor, [])
+    if not clips:
+        fallback = _BC_TYPE_FALLBACK.get(bc_type)
+        if fallback:
+            clips = bc_clips.get(fallback, {}).get(reactor, [])
     if not clips:
         return None
     return clips[int(rng.integers(len(clips)))]
