@@ -19,6 +19,7 @@ from process_lines import (
     generate_room_ir,
     process_one,
     process_all,
+    _find_speech_boundaries,
 )
 from manifest import parse_script, build_manifest, STATUS_EXISTS, STATUS_MISSING
 from config import load_episode_config
@@ -354,6 +355,34 @@ class TestReverb:
         r1 = apply_reverb_pedalboard(audio, sr, mix=0.02)
         r2 = apply_reverb_pedalboard(audio, sr, mix=0.02)
         assert np.allclose(r1, r2)
+
+
+class TestSpeechBoundaries:
+    def test_finds_speech_in_padded_audio(self):
+        """Detect speech onset in audio with leading silence."""
+        sr = 24000
+        silence = np.zeros(int(sr * 0.1), dtype=np.float32)
+        speech = np.sin(2 * np.pi * 200 * np.linspace(0, 0.5, int(sr * 0.5),
+                        dtype=np.float32)) * 0.3
+        audio = np.concatenate([silence, speech])
+        start, end = _find_speech_boundaries(audio, sr, threshold_db=-35)
+        # Speech starts around sample 2400 (0.1s * 24000)
+        assert abs(start - len(silence)) < 512
+        assert end > start
+
+    def test_silent_audio_returns_end(self):
+        sr = 24000
+        audio = np.zeros(sr, dtype=np.float32)
+        start, end = _find_speech_boundaries(audio, sr, threshold_db=-35)
+        assert start == len(audio)
+
+    def test_no_leading_silence(self):
+        """Speech starting immediately is detected."""
+        sr = 24000
+        audio = np.sin(2 * np.pi * 200 * np.linspace(0, 0.5, int(sr * 0.5),
+                        dtype=np.float32)) * 0.3
+        start, end = _find_speech_boundaries(audio, sr, threshold_db=-35)
+        assert start < 50  # near the beginning
 
 
 # ---------------------------------------------------------------------------

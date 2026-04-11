@@ -37,6 +37,12 @@ try:
 except ImportError:
     _HAS_PEDALBOARD = False
 
+try:
+    import librosa
+    _HAS_LIBROSA = True
+except ImportError:
+    _HAS_LIBROSA = False
+
 from manifest import STATUS_EXISTS
 
 logger = logging.getLogger(__name__)
@@ -139,6 +145,62 @@ def lufs_normalize(audio, sr, target_lufs=-16.0, target_rms=0.1):
     return (audio * gain_linear).astype(np.float32)
 
 
+def _find_speech_boundaries(audio, sr, threshold_db=-35):
+    """Find speech start and end positions in audio.
+
+    Uses librosa onset detection when available (spectral flux — more
+    robust for speech than amplitude thresholding). Falls back to
+    sample-by-sample amplitude scanning.
+
+    Returns:
+        (speech_start, speech_end) sample indices.
+        speech_start == len(audio) if no speech found.
+    """
+    threshold = 10 ** (threshold_db / 20)
+
+    # Librosa path: spectral flux onset detection
+    if _HAS_LIBROSA and len(audio) > sr * 0.05:
+        onsets = librosa.onset.onset_detect(
+            y=audio, sr=sr, units="samples", backtrack=True,
+            hop_length=256, pre_max=3, post_max=3,
+            pre_avg=3, post_avg=5, delta=0.05, wait=1,
+        )
+        if len(onsets) > 0:
+            # First onset is speech start; refine with threshold scan
+            # near the detected onset (librosa may overshoot by a hop)
+            onset_sample = int(onsets[0])
+            search_start = max(0, onset_sample - 512)
+            for i in range(search_start, min(len(audio), onset_sample + 512)):
+                if abs(audio[i]) > threshold:
+                    speech_start = i
+                    break
+            else:
+                speech_start = onset_sample
+
+            # Speech end: scan backward from end
+            speech_end = 0
+            for i in range(len(audio) - 1, -1, -1):
+                if abs(audio[i]) > threshold:
+                    speech_end = i + 1
+                    break
+            return speech_start, speech_end
+
+    # Legacy path: sample-by-sample threshold scanning
+    speech_start = len(audio)
+    for i in range(len(audio)):
+        if abs(audio[i]) > threshold:
+            speech_start = i
+            break
+
+    speech_end = 0
+    for i in range(len(audio) - 1, -1, -1):
+        if abs(audio[i]) > threshold:
+            speech_end = i + 1
+            break
+
+    return speech_start, speech_end
+
+
 def smooth_onset_glitches(audio, sr, threshold_db=-35,
                           scan_ms=10, reversal_threshold=0.025,
                           smooth_radius=4):
@@ -149,26 +211,15 @@ def smooth_onset_glitches(audio, sr, threshold_db=-35,
     regions for abnormal reversals and replaces them with a linear
     interpolation over a small window.
 
+    Uses librosa onset detection when available for more accurate
+    speech boundary finding (spectral flux vs amplitude threshold).
+
     Runs on raw TTS audio, before normalization (so amplitudes are
     at TTS output scale).
     """
-    threshold = 10 ** (threshold_db / 20)
-
-    # Find speech start
-    speech_start = len(audio)
-    for i in range(len(audio)):
-        if abs(audio[i]) > threshold:
-            speech_start = i
-            break
+    speech_start, speech_end = _find_speech_boundaries(audio, sr, threshold_db)
     if speech_start >= len(audio):
         return audio
-
-    # Find speech end
-    speech_end = 0
-    for i in range(len(audio) - 1, -1, -1):
-        if abs(audio[i]) > threshold:
-            speech_end = i + 1
-            break
 
     scan = int(sr * scan_ms / 1000)
 
@@ -369,16 +420,9 @@ def check_onset_quality(audio, sr, threshold_db=-35,
     Returns:
         dict with {clean: bool, issues: [str], metrics: {attack_rms, pre_speech_peak, speech_start_ms}}
     """
-    threshold = 10 ** (threshold_db / 20)
     issues = []
 
-    # Find speech start
-    speech_start = len(audio)
-    for i in range(len(audio)):
-        if abs(audio[i]) > threshold:
-            speech_start = i
-            break
-
+    speech_start, _ = _find_speech_boundaries(audio, sr, threshold_db)
     speech_start_ms = speech_start / sr * 1000
 
     # Speech starts too early — no natural lead-in silence
