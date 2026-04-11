@@ -443,10 +443,28 @@ def generate_missing(manifest, cfg, dry_run=False):
                             line_tts_config, retry_config, target_sr,
                         )
                     else:
-                        audio, sr, _ = _generate_with_guard(
-                            adapter, info["text"], voice_ref, ref_text, language,
-                            line_tts_config, retry_config,
-                        )
+                        # Multi-attempt for short lines: generate several
+                        # times and pick the longest valid attempt (gives
+                        # the voice more prosodic runway to settle)
+                        word_count = len(info["text"].split())
+                        short_attempts = tts_config.get("short_line_attempts", 3) if word_count <= 4 else 1
+
+                        best_audio, best_sr, best_dur = None, None, 0
+                        for attempt_i in range(short_attempts):
+                            a, s, _ = _generate_with_guard(
+                                adapter, info["text"], voice_ref, ref_text, language,
+                                line_tts_config, retry_config,
+                            )
+                            if a is not None:
+                                dur = len(a) / s
+                                max_dur = estimate_max_duration(info["text"])
+                                if dur <= max_dur and dur > best_dur:
+                                    best_audio, best_sr, best_dur = a, s, dur
+                                    if short_attempts > 1:
+                                        logger.info("    attempt %d/%d: %.1fs%s",
+                                                    attempt_i + 1, short_attempts, dur,
+                                                    " (best)" if dur == best_dur else "")
+                        audio, sr = best_audio, best_sr
 
                     used_engine = engine_name
                     if audio is None:
