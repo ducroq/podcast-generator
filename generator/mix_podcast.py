@@ -27,6 +27,12 @@ import numpy as np
 import soundfile as sf
 from scipy.signal import lfilter
 
+try:
+    from pedalboard import Pedalboard, Limiter as PedalboardLimiter
+    _HAS_PEDALBOARD = True
+except ImportError:
+    _HAS_PEDALBOARD = False
+
 from manifest import STATUS_EXISTS
 
 logger = logging.getLogger(__name__)
@@ -632,11 +638,20 @@ def mix_episode(manifest, cfg, output_path=None, intro_voice=None, seed=42):
     full = full + pink * room_mask
 
     # Peak limiting
-    peak = np.max(np.abs(full))
+    peak_before = float(np.max(np.abs(full)))
     limit = 10 ** (peak_limit_dbtp / 20)
-    if peak > limit:
-        full = full * (limit / peak)
-        logger.info("Peak limited: %.3f -> %.3f", peak, limit)
+    if _HAS_PEDALBOARD:
+        board = Pedalboard([PedalboardLimiter(threshold_db=peak_limit_dbtp)])
+        full = board(full[np.newaxis, :].astype(np.float32), sr)[0]
+        # Hard-clip as safety net — the limiter handles dynamics gracefully
+        # but may allow transient peaks slightly above threshold
+        np.clip(full, -limit, limit, out=full)
+        peak_after = float(np.max(np.abs(full)))
+        if peak_before > limit:
+            logger.info("Peak limited: %.3f -> %.3f", peak_before, peak_after)
+    elif peak_before > limit:
+        full = full * (limit / peak_before)
+        logger.info("Peak limited: %.3f -> %.3f", peak_before, limit)
 
     total_dur = len(full) / sr
     logger.info("Total: %.1fs (%.1f min) -> %s", total_dur, total_dur / 60, output_path)

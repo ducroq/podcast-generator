@@ -11,9 +11,11 @@ import yaml
 from process_lines import (
     trim_silence,
     rms_normalize,
+    lufs_normalize,
     apply_speaker_volume,
     apply_clip_fades,
     apply_reverb,
+    apply_reverb_pedalboard,
     generate_room_ir,
     process_one,
     process_all,
@@ -252,6 +254,34 @@ class TestRMSNormalize:
         assert np.all(result == 0)
 
 
+class TestLUFSNormalize:
+    def test_loudness_closer_to_target(self):
+        """LUFS-normalized audio should measure close to target LUFS."""
+        sr = 24000
+        # 2 seconds of speech-like signal (enough for LUFS meter)
+        t = np.linspace(0, 2, sr * 2, dtype=np.float32)
+        audio = 0.3 * np.sin(2 * np.pi * 200 * t)
+        result = lufs_normalize(audio, sr, target_lufs=-16.0)
+        # Result should be non-silent and different from input
+        assert np.max(np.abs(result)) > 0
+        assert not np.array_equal(audio, result)
+
+    def test_silent_audio_unchanged(self):
+        sr = 24000
+        audio = np.zeros(sr * 2, dtype=np.float32)
+        result = lufs_normalize(audio, sr, target_lufs=-16.0)
+        assert np.all(result == 0)
+
+    def test_short_clip_falls_back_to_rms(self):
+        """Clips shorter than 0.5s should use RMS fallback."""
+        sr = 24000
+        # 0.3s clip — too short for reliable LUFS
+        audio = np.ones(int(sr * 0.3), dtype=np.float32) * 0.5
+        result = lufs_normalize(audio, sr, target_lufs=-16.0, target_rms=0.1)
+        rms = np.sqrt(np.mean(result ** 2))
+        assert rms == pytest.approx(0.1, abs=0.01)
+
+
 class TestSpeakerVolume:
     def test_positive_db(self):
         audio = np.ones(100, dtype=np.float32) * 0.1
@@ -309,6 +339,21 @@ class TestReverb:
         sr = 24000
         ir = generate_room_ir(sr, 0.0, rng=np.random.RandomState(42))
         assert len(ir) >= 1
+
+    def test_pedalboard_reverb_changes_audio(self):
+        sr = 24000
+        audio = np.random.randn(sr).astype(np.float32) * 0.1
+        result = apply_reverb_pedalboard(audio, sr, mix=0.02, room_size=0.15)
+        assert not np.allclose(result, audio, atol=1e-6)
+        assert np.corrcoef(audio, result)[0, 1] > 0.95
+
+    def test_pedalboard_reverb_deterministic(self):
+        """Pedalboard reverb is deterministic (no RNG component)."""
+        sr = 24000
+        audio = np.random.randn(sr).astype(np.float32) * 0.1
+        r1 = apply_reverb_pedalboard(audio, sr, mix=0.02)
+        r2 = apply_reverb_pedalboard(audio, sr, mix=0.02)
+        assert np.allclose(r1, r2)
 
 
 # ---------------------------------------------------------------------------

@@ -24,6 +24,19 @@ import numpy as np
 import soundfile as sf
 from scipy.signal import fftconvolve, resample
 
+try:
+    import pyloudnorm as pyln
+    _HAS_PYLOUDNORM = True
+except ImportError:
+    pyln = None
+    _HAS_PYLOUDNORM = False
+
+try:
+    from pedalboard import Pedalboard, Reverb as PedalboardReverb
+    _HAS_PEDALBOARD = True
+except ImportError:
+    _HAS_PEDALBOARD = False
+
 from manifest import STATUS_EXISTS
 
 logger = logging.getLogger(__name__)
@@ -88,11 +101,42 @@ def trim_silence(audio, sr, threshold_db=-35, pre_roll_ms=40,
 
 
 def rms_normalize(audio, target_rms=0.1):
-    """Normalize audio to target RMS level."""
+    """Normalize audio to target RMS level (legacy fallback)."""
     rms = np.sqrt(np.mean(audio ** 2))
     if rms > 0:
         return audio * (target_rms / rms)
     return audio
+
+
+# Minimum duration for reliable LUFS measurement (pyloudnorm needs enough
+# samples for the 400ms gating window).  Clips shorter than this fall back
+# to RMS normalization.
+_LUFS_MIN_DURATION = 0.5  # seconds
+
+
+def lufs_normalize(audio, sr, target_lufs=-16.0, target_rms=0.1):
+    """Normalize audio to target LUFS (broadcast standard).
+
+    Uses pyloudnorm for perceptually correct loudness normalization.
+    Falls back to RMS normalization when pyloudnorm is unavailable or
+    the clip is too short for reliable LUFS measurement (<0.5s).
+    """
+    duration = len(audio) / sr
+    if not _HAS_PYLOUDNORM or duration < _LUFS_MIN_DURATION:
+        return rms_normalize(audio, target_rms)
+
+    meter = pyln.Meter(sr)
+    # pyloudnorm expects (samples, channels)
+    mono_2d = audio.reshape(-1, 1)
+    current_lufs = meter.integrated_loudness(mono_2d)
+
+    # If the audio is effectively silent, LUFS returns -inf
+    if current_lufs == float("-inf") or current_lufs < -70:
+        return audio
+
+    gain_db = target_lufs - current_lufs
+    gain_linear = 10 ** (gain_db / 20)
+    return (audio * gain_linear).astype(np.float32)
 
 
 def smooth_onset_glitches(audio, sr, threshold_db=-35,
@@ -187,9 +231,26 @@ def generate_room_ir(sr, decay_time=0.3, rng=None):
 
 
 def apply_reverb(audio, ir, mix=0.02):
-    """Apply convolution reverb with wet/dry mix."""
+    """Apply convolution reverb with wet/dry mix (legacy path)."""
     wet = fftconvolve(audio, ir, mode="full")[:len(audio)].astype(np.float32)
     return audio * (1 - mix) + wet * mix
+
+
+def apply_reverb_pedalboard(audio, sr, mix=0.02, room_size=0.15):
+    """Apply reverb using Pedalboard (Spotify JUCE Freeverb).
+
+    Higher quality than synthetic IR convolution, deterministic,
+    and no IR generation needed.
+    """
+    board = Pedalboard([PedalboardReverb(
+        room_size=room_size,
+        wet_level=mix,
+        dry_level=1.0 - mix,
+        width=0.5,
+    )])
+    # Pedalboard expects (channels, samples) float32
+    result = board(audio[np.newaxis, :].astype(np.float32), sr)
+    return result[0]
 
 
 def apply_clip_fades(audio, sr, fade_in_ms=35, fade_out_ms=20,
@@ -244,9 +305,17 @@ def process_one(audio, sr, volume_db, room_ir, processing_cfg, reverb_mix=0.02):
         reversal_threshold=p.get("onset_reversal_threshold", 0.025),
         smooth_radius=p.get("onset_smooth_radius", 4),
     )
-    audio = rms_normalize(audio, target_rms=p.get("rms_target", 0.1))
+    audio = lufs_normalize(
+        audio, sr,
+        target_lufs=p.get("target_lufs", -16.0),
+        target_rms=p.get("rms_target", 0.1),
+    )
     audio = apply_speaker_volume(audio, volume_db)
-    audio = apply_reverb(audio, room_ir, mix=reverb_mix)
+    if _HAS_PEDALBOARD and p.get("use_pedalboard_reverb", True):
+        audio = apply_reverb_pedalboard(audio, sr, mix=reverb_mix,
+                                        room_size=p.get("reverb_decay", 0.15))
+    else:
+        audio = apply_reverb(audio, room_ir, mix=reverb_mix)
     # Boundary fade: S-curve (raised cosine) at head and tail.
     # Replaces the old apply_clip_fades which damaged speech transients.
     # Head fade is pad + overlap to smooth Qwen's hard onsets.
