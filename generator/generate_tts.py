@@ -230,15 +230,31 @@ def _extract_target_with_whisper(audio, sr, prefix_text, target_text, config,
                 for w in segment.words:
                     words.append((w.word.strip(), w.start, w.end))
 
-        # Target starts after prefix words
+        # Find where the target starts — the separator "..." may produce
+        # 0-3 words in Whisper output, so we can't rely on exact word count.
+        # Strategy: start at prefix_word_count, then search nearby for a word
+        # that matches the first word of the target text.
         if len(words) <= prefix_word_count:
             return None
 
-        target_start_word = words[prefix_word_count]
+        target_first_word = target_text.split()[0].lower().strip(".,;:!?\"'")
+        best_start_idx = prefix_word_count  # default
+
+        # Search window around expected position (±3 words for separator drift)
+        search_start = max(0, prefix_word_count - 1)
+        search_end = min(len(words), prefix_word_count + 4)
+        for i in range(search_start, search_end):
+            whisper_word = words[i][0].lower().strip(".,;:!?\"'")
+            if whisper_word.startswith(target_first_word[:3]) or \
+               target_first_word.startswith(whisper_word[:3]):
+                best_start_idx = i
+                break
+
+        target_start_word = words[best_start_idx]
 
         # Target ends before suffix (or at last word if no suffix)
         if suffix_text:
-            target_end_idx = min(prefix_word_count + target_word_count - 1,
+            target_end_idx = min(best_start_idx + target_word_count - 1,
                                  len(words) - 1)
             target_end_word = words[target_end_idx]
         else:
