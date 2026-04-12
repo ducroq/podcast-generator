@@ -401,6 +401,22 @@ def generate_missing(manifest, cfg, dry_run=False):
     retry_config = cfg.tts.get("hallucination", {})
     max_per_word = retry_config.get("max_duration_per_word", 0.6)
 
+    # Voice bank: dynamic reference selection across lines/episodes
+    bank_cfg = tts_config.get("voice_bank", {})
+    bank = None
+    if bank_cfg.get("enabled", False):
+        try:
+            from voice_bank import VoiceBank
+            bank_dir = cfg.voice_refs_dir() / bank_cfg.get("bank_dir", "dynamic")
+            bank = VoiceBank(
+                bank_dir,
+                min_score=bank_cfg.get("min_score", 0.85),
+                min_duration=bank_cfg.get("min_duration", 1.5),
+            )
+            logger.info("Voice bank loaded from %s", bank_dir)
+        except Exception as e:
+            logger.warning("Voice bank unavailable: %s", e)
+
     # Build force_fallback lookup: hash -> engine
     force_fb = {entry["hash"]: entry["engine"] for entry in cfg.force_fallback}
 
@@ -463,8 +479,14 @@ def generate_missing(manifest, cfg, dry_run=False):
                 info = lines[h]
                 speaker = info["speaker"]
                 cast_info = cfg.cast(speaker)
-                voice_ref = cfg.voice_ref_path(speaker)
-                ref_text = cast_info.get("ref_text", "")
+
+                # Dynamic ref: use best-scoring line from bank if available
+                dynamic = bank.best_ref(speaker) if bank else None
+                if dynamic:
+                    voice_ref, ref_text = dynamic
+                else:
+                    voice_ref = cfg.voice_ref_path(speaker)
+                    ref_text = cast_info.get("ref_text", "")
                 out_path = tts_dir / info["file"]
 
                 # Check for overrides (segmented generation, per-line config)
@@ -564,6 +586,10 @@ def generate_missing(manifest, cfg, dry_run=False):
                         voice_score = _score_voice_similarity(audio, target_sr, static_ref)
                         if voice_score is not None:
                             info["voice_score"] = round(voice_score, 3)
+                            # Update voice bank with this score
+                            if bank and voice_score:
+                                bank.update(speaker, audio, target_sr, voice_score,
+                                            info["text"], cfg.episode.get("slug", "unknown"), h)
 
                         logger.info("  -> %s (%.1fs, %s, score=%.2f)",
                                     info["file"], duration, info["engine"],
@@ -587,6 +613,11 @@ def generate_missing(manifest, cfg, dry_run=False):
         "Done: %d generated, %d skipped, %d failed (total: %d)",
         generated, skipped, failed, len(lines),
     )
+
+    # Save voice bank (persist best refs for future episodes)
+    if bank:
+        bank.save()
+
     return {"generated": generated, "skipped": skipped, "failed": failed, "total": len(lines)}
 
 
