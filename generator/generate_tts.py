@@ -821,7 +821,8 @@ def generate_missing(manifest, cfg, dry_run=False):
                         audio = _resample_if_needed(audio, sr, target_sr)
 
                         # Onset quality check — regen if hard onset detected
-                        onset = check_onset_quality(audio, target_sr)
+                        # Skip for segmented lines (onset retry would destroy assembly)
+                        onset = check_onset_quality(audio, target_sr) if not segments else {"clean": True, "issues": [], "metrics": {}}
                         onset_retries = 0
                         max_onset_retries = 2
                         while not onset["clean"] and any("hard_onset" in i for i in onset["issues"]) and onset_retries < max_onset_retries:
