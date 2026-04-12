@@ -358,7 +358,7 @@ def process_one(audio, sr, volume_db, room_ir, processing_cfg, reverb_mix=0.02):
     )
     audio = lufs_normalize(
         audio, sr,
-        target_lufs=p.get("target_lufs", -16.0),
+        target_lufs=p.get("target_lufs", -20.0),
         target_rms=p.get("rms_target", 0.1),
     )
     audio = apply_speaker_volume(audio, volume_db)
@@ -399,7 +399,7 @@ def process_one(audio, sr, volume_db, room_ir, processing_cfg, reverb_mix=0.02):
 
     # Peak safety cap — prevent clipping after the full chain
     # (normalization + speaker volume + reverb can push peaks above 1.0)
-    peak_ceiling = p.get("peak_ceiling", 0.9)
+    peak_ceiling = p.get("peak_ceiling", 0.85)
     peak = np.max(np.abs(audio))
     if peak > peak_ceiling:
         audio = (audio * (peak_ceiling / peak)).astype(np.float32)
