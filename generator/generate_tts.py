@@ -260,8 +260,41 @@ def _extract_target_with_whisper(audio, sr, prefix_text, target_text, config,
         else:
             target_end_word = words[-1]
 
+        # Start: pad before first target word
         start_time = max(0, target_start_word[1] - pad_before)
-        end_time = min(len(audio) / sr, target_end_word[2] + pad_after)
+
+        # End: depends on whether there's a suffix
+        whisper_end = target_end_word[2]
+        if suffix_text:
+            # With suffix: use Whisper boundary + fixed pad (don't envelope-follow
+            # or we'll bleed into the suffix which has continuous energy)
+            suffix_start_idx = best_start_idx + target_word_count
+            if suffix_start_idx < len(words):
+                # Cap at the midpoint between target end and suffix start
+                suffix_start_time = words[suffix_start_idx][1]
+                end_time = whisper_end + min(pad_after, (suffix_start_time - whisper_end) * 0.5)
+            else:
+                end_time = whisper_end + pad_after
+        else:
+            # No suffix: follow the audio envelope past Whisper's end timestamp
+            # until energy drops to silence. Captures consonant releases
+            # ("t" in "podcast", "s" in "sense").
+            silence_threshold = 0.01
+            scan_limit = min(whisper_end + 0.3, len(audio) / sr)
+            scan_start = int(whisper_end * sr)
+            scan_end = int(scan_limit * sr)
+            envelope_end = whisper_end
+            if scan_start < len(audio):
+                window = int(sr * 0.01)  # 10ms RMS windows
+                for i in range(scan_start, min(scan_end, len(audio) - window), window):
+                    rms = float(np.sqrt(np.mean(audio[i:i + window] ** 2)))
+                    if rms < silence_threshold:
+                        envelope_end = i / sr
+                        break
+                else:
+                    envelope_end = scan_limit
+            end_time = envelope_end + 0.02  # 20ms safety pad
+        end_time = min(end_time, len(audio) / sr)
 
         start_sample = int(start_time * sr)
         end_sample = int(end_time * sr)
