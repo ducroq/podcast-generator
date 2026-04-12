@@ -114,8 +114,16 @@ def _get_whisper_model(model_size="base"):
     return _whisper_model_cache.get(model_size)
 
 
+def _find_order_index(manifest, current_hash):
+    """Find the index of a line hash in manifest order. Returns None if not found."""
+    for i, entry in enumerate(manifest.get("order", [])):
+        if entry.get("type") == "line" and entry.get("hash") == current_hash:
+            return i
+    return None
+
+
 def _find_same_speaker_context(manifest, current_hash, speaker, max_words=15):
-    """Find the previous line from the same speaker in manifest order.
+    """Find the previous line from the same speaker (prefix context).
 
     Walks backwards from current_hash, skipping pauses and backchannels.
     Stops at section_break boundaries (don't cross sections).
@@ -124,22 +132,15 @@ def _find_same_speaker_context(manifest, current_hash, speaker, max_words=15):
     """
     order = manifest.get("order", [])
     lines = manifest.get("lines", {})
-
-    # Find current position in order
-    current_idx = None
-    for i, entry in enumerate(order):
-        if entry.get("type") == "line" and entry.get("hash") == current_hash:
-            current_idx = i
-            break
+    current_idx = _find_order_index(manifest, current_hash)
 
     if current_idx is None or current_idx == 0:
         return None
 
-    # Walk backwards
     for i in range(current_idx - 1, -1, -1):
         entry = order[i]
         if entry.get("type") == "section_break":
-            return None  # don't cross section boundaries
+            return None
         if entry.get("type") == "line":
             prev_hash = entry["hash"]
             prev_info = lines.get(prev_hash, {})
@@ -153,11 +154,51 @@ def _find_same_speaker_context(manifest, current_hash, speaker, max_words=15):
     return None
 
 
-def _extract_target_with_whisper(audio, sr, context_text, target_text, config):
-    """Extract the target portion from combined context+target audio.
+def _find_same_speaker_suffix(manifest, current_hash, speaker, max_words=15):
+    """Find the next line from the same speaker (suffix context).
 
-    Uses faster-whisper word-level timestamps to find where the target
-    text begins (after the context words), then slices with padding.
+    Walks forward from current_hash. Stops at section_break.
+    Returns the text (first max_words words) or None.
+    """
+    order = manifest.get("order", [])
+    lines = manifest.get("lines", {})
+    current_idx = _find_order_index(manifest, current_hash)
+
+    if current_idx is None:
+        return None
+
+    for i in range(current_idx + 1, len(order)):
+        entry = order[i]
+        if entry.get("type") == "section_break":
+            return None
+        if entry.get("type") == "line":
+            next_hash = entry["hash"]
+            next_info = lines.get(next_hash, {})
+            if next_info.get("speaker", "").lower() == speaker.lower():
+                text = next_info.get("text", "")
+                words = text.split()
+                if len(words) > max_words:
+                    words = words[:max_words]
+                return " ".join(words)
+
+    return None
+
+
+def _extract_target_with_whisper(audio, sr, prefix_text, target_text, config,
+                                  suffix_text=None):
+    """Extract the target from a context-sandwich audio via word timestamps.
+
+    The sandwich: [prefix] ... [TARGET] ... [suffix]
+    Onset artifacts land in the prefix (cut away), tail artifacts land in
+    the suffix (cut away). Only the clean middle is returned.
+
+    Args:
+        audio: combined audio array
+        sr: sample rate
+        prefix_text: context prepended before target (or None)
+        target_text: the text we want to extract
+        config: dict with min_extracted_duration, pad_before_ms, pad_after_ms
+        suffix_text: context appended after target (or None)
 
     Returns extracted audio array, or None if extraction fails.
     """
@@ -169,14 +210,13 @@ def _extract_target_with_whisper(audio, sr, context_text, target_text, config):
 
     min_duration = config.get("min_extracted_duration", 0.2)
     pad_before = config.get("pad_before_ms", 30) / 1000
-    pad_after = config.get("pad_after_ms", 50) / 1000
+    pad_after = config.get("pad_after_ms", 80) / 1000
 
-    # Count context words to find the boundary
-    context_word_count = len(context_text.split())
+    prefix_word_count = len(prefix_text.split()) if prefix_text else 0
+    target_word_count = len(target_text.split())
 
     temp_path = None
     try:
-        # Write to temp file (faster-whisper needs a file path)
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
             temp_path = f.name
             sf.write(f.name, audio, sr)
@@ -184,31 +224,33 @@ def _extract_target_with_whisper(audio, sr, context_text, target_text, config):
         segments, _ = model.transcribe(temp_path, language="en",
                                         word_timestamps=True)
 
-        # Collect all words with timestamps
         words = []
         for segment in segments:
             if hasattr(segment, "words") and segment.words:
                 for w in segment.words:
                     words.append((w.word.strip(), w.start, w.end))
 
-        # Find boundary: target starts after context_word_count words
-        if len(words) <= context_word_count:
-            # Whisper didn't transcribe enough words — alignment failed
+        # Target starts after prefix words
+        if len(words) <= prefix_word_count:
             return None
 
-        # Target starts at this word
-        target_start_word = words[context_word_count]
-        target_end_word = words[-1]
+        target_start_word = words[prefix_word_count]
+
+        # Target ends before suffix (or at last word if no suffix)
+        if suffix_text:
+            target_end_idx = min(prefix_word_count + target_word_count - 1,
+                                 len(words) - 1)
+            target_end_word = words[target_end_idx]
+        else:
+            target_end_word = words[-1]
 
         start_time = max(0, target_start_word[1] - pad_before)
         end_time = min(len(audio) / sr, target_end_word[2] + pad_after)
 
-        # Slice audio
         start_sample = int(start_time * sr)
         end_sample = int(end_time * sr)
         extracted = audio[start_sample:end_sample]
 
-        # Validate duration
         extracted_dur = len(extracted) / sr
         if extracted_dur < min_duration:
             return None
@@ -228,17 +270,26 @@ def _extract_target_with_whisper(audio, sr, context_text, target_text, config):
 
 def _generate_with_context_embedding(adapter, text, voice_ref, ref_text,
                                       language, tts_config, retry_config,
-                                      context_text, embed_config):
-    """Generate context+target as one utterance, extract target via Whisper.
+                                      prefix_text, embed_config,
+                                      suffix_text=None):
+    """Generate a context-sandwich and extract the clean target via Whisper.
 
-    The context gives the TTS model prosodic runway to settle into the
-    voice before the short target text. Whisper word timestamps locate
-    the boundary for surgical extraction.
+    Sandwich: [prefix] ... [TARGET] ... [suffix]
+    - Prefix gives prosodic runway (onset artifacts land here)
+    - Suffix absorbs trailing artifacts (tail cut-offs land here)
+    - Whisper word timestamps locate the target boundaries
+    - Only the clean middle is returned
 
     Returns (audio, sr) or (None, None) on failure.
     """
     separator = " ... "
-    combined_text = f"{context_text}{separator}{text}"
+    parts = []
+    if prefix_text:
+        parts.append(prefix_text)
+    parts.append(text)
+    if suffix_text:
+        parts.append(suffix_text)
+    combined_text = separator.join(parts)
 
     # Generate the combined utterance
     audio, sr, _ = _generate_with_guard(
@@ -252,7 +303,8 @@ def _generate_with_context_embedding(adapter, text, voice_ref, ref_text,
 
     # Extract just the target portion
     extracted = _extract_target_with_whisper(
-        audio, sr, context_text, text, embed_config
+        audio, sr, prefix_text, text, embed_config,
+        suffix_text=suffix_text,
     )
 
     if extracted is None:
@@ -693,22 +745,27 @@ def generate_missing(manifest, cfg, dry_run=False):
 
                         audio, sr = None, None
 
-                        # 1. Try context-embedding for short lines
-                        if word_count <= max_wc and embed_enabled:
-                            context = _find_same_speaker_context(
-                                manifest, h, speaker,
-                                max_words=embed_cfg.get("context_max_words", 15),
-                            )
-                            if context:
+                        # 1. Try context-sandwich (prefix + target + suffix)
+                        #    Onset artifacts land in prefix, tail in suffix.
+                        if embed_enabled:
+                            ctx_max = embed_cfg.get("context_max_words", 15)
+                            prefix = _find_same_speaker_context(
+                                manifest, h, speaker, max_words=ctx_max)
+                            suffix = _find_same_speaker_suffix(
+                                manifest, h, speaker, max_words=ctx_max)
+                            if prefix or suffix:
                                 audio, sr = _generate_with_context_embedding(
                                     adapter, info["text"], voice_ref, ref_text,
                                     language, line_tts_config, retry_config,
-                                    context, embed_cfg,
+                                    prefix or "", embed_cfg,
+                                    suffix_text=suffix,
                                 )
                                 if audio is not None:
                                     score = _score_voice_similarity(audio, sr, voice_ref)
-                                    logger.info("    context-embed: %.1fs (score=%.2f)",
-                                                len(audio) / sr, score or 0)
+                                    logger.info("    sandwich: %.1fs (score=%.2f, prefix=%s, suffix=%s)",
+                                                len(audio) / sr, score or 0,
+                                                "yes" if prefix else "no",
+                                                "yes" if suffix else "no")
 
                         # 2. Fallback: multi-attempt with resemblyzer scoring
                         if audio is None:
