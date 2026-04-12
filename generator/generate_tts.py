@@ -795,27 +795,26 @@ def generate_missing(manifest, cfg, dry_run=False):
                         audio, sr = None, None
 
                         # 1. Try context-sandwich for short lines (≤max_wc words)
-                        #    Onset artifacts land in prefix, tail in suffix.
-                        #    Long lines don't need it — Qwen generates them fine.
+                        #    Prefix: same-speaker previous line (voice consistency + onset)
+                        #    Suffix: fixed filler "Hmm." (tail protection — simpler and
+                        #    more reliable than using the real next line, which caused
+                        #    bleeding artifacts)
                         if embed_enabled and word_count <= max_wc:
                             ctx_max = embed_cfg.get("context_max_words", 15)
                             prefix = _find_same_speaker_context(
                                 manifest, h, speaker, max_words=ctx_max)
-                            suffix = _find_same_speaker_suffix(
-                                manifest, h, speaker, max_words=ctx_max)
-                            if prefix or suffix:
+                            filler = embed_cfg.get("tail_filler", "Hmm.")
+                            if prefix:
                                 audio, sr = _generate_with_context_embedding(
                                     adapter, info["text"], voice_ref, ref_text,
                                     language, line_tts_config, retry_config,
-                                    prefix or "", embed_cfg,
-                                    suffix_text=suffix,
+                                    prefix, embed_cfg,
+                                    suffix_text=filler,
                                 )
                                 if audio is not None:
                                     score = _score_voice_similarity(audio, sr, voice_ref)
-                                    logger.info("    sandwich: %.1fs (score=%.2f, prefix=%s, suffix=%s)",
-                                                len(audio) / sr, score or 0,
-                                                "yes" if prefix else "no",
-                                                "yes" if suffix else "no")
+                                    logger.info("    sandwich: %.1fs (score=%.2f)",
+                                                len(audio) / sr, score or 0)
 
                         # 2. Fallback: multi-attempt with resemblyzer scoring
                         if audio is None:
