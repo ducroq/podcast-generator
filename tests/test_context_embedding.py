@@ -8,7 +8,13 @@ import numpy as np
 import pytest
 import soundfile as sf
 
-from generate_tts import _score_voice_similarity
+from generate_tts import (
+    _score_voice_similarity,
+    _find_same_speaker_context,
+    _extract_target_with_whisper,
+    _generate_with_context_embedding,
+    _generate_with_guard,
+)
 
 SR = 24000
 
@@ -140,21 +146,186 @@ class MockSegment:
         self.end = words[-1].end if words else 0
 
 
-class TestFindSameSpeakerContext:
-    @pytest.mark.skip(reason="Phase C not yet implemented")
-    def test_finds_previous_same_speaker(self):
-        pass
+class MockWord:
+    """Mock faster-whisper word object."""
+    def __init__(self, word, start, end):
+        self.word = word
+        self.start = start
+        self.end = end
 
-    @pytest.mark.skip(reason="Phase C not yet implemented")
+
+class MockSegment:
+    """Mock faster-whisper segment with word timestamps."""
+    def __init__(self, words):
+        self.words = words
+        self.text = " ".join(w.word for w in words)
+        self.start = words[0].start if words else 0
+        self.end = words[-1].end if words else 0
+
+
+class TestFindSameSpeakerContext:
+    def test_finds_previous_same_speaker(self):
+        manifest = _make_manifest([
+            ("alex", "The book doesn't update. It just sits there."),
+            ("morgan", "Something else entirely."),
+            ("alex", "Did they?"),
+        ])
+        short_hash = [h for h, info in manifest["lines"].items()
+                      if info["text"] == "Did they?"][0]
+        result = _find_same_speaker_context(manifest, short_hash, "alex")
+        assert result is not None
+        assert "book doesn't update" in result
+
     def test_skips_different_speaker(self):
-        pass
+        manifest = _make_manifest([
+            ("morgan", "Only Morgan spoke before."),
+            ("alex", "Both?"),
+        ])
+        short_hash = [h for h, info in manifest["lines"].items()
+                      if info["text"] == "Both?"][0]
+        result = _find_same_speaker_context(manifest, short_hash, "alex")
+        assert result is None
+
+    def test_stops_at_section_break(self):
+        manifest = _make_manifest([
+            ("alex", "End of previous section."),
+            "break",
+            ("alex", "Yeah."),
+        ])
+        short_hash = [h for h, info in manifest["lines"].items()
+                      if info["text"] == "Yeah."][0]
+        result = _find_same_speaker_context(manifest, short_hash, "alex")
+        assert result is None
+
+    def test_truncates_long_context(self):
+        long_text = " ".join(f"word{i}" for i in range(30))
+        manifest = _make_manifest([
+            ("alex", long_text),
+            ("alex", "Huh."),
+        ])
+        short_hash = [h for h, info in manifest["lines"].items()
+                      if info["text"] == "Huh."][0]
+        result = _find_same_speaker_context(manifest, short_hash, "alex", max_words=10)
+        assert result is not None
+        assert len(result.split()) == 10
+
+    def test_first_line_returns_none(self):
+        manifest = _make_manifest([("alex", "Both?")])
+        short_hash = list(manifest["lines"].keys())[0]
+        result = _find_same_speaker_context(manifest, short_hash, "alex")
+        assert result is None
 
 
 class TestExtractTargetWithWhisper:
-    @pytest.mark.skip(reason="Phase C not yet implemented")
-    def test_basic_extraction(self):
-        pass
+    def _mock_whisper_model(self, words):
+        model = MagicMock()
+        segment = MockSegment(words)
+        model.transcribe.return_value = (iter([segment]), {})
+        return model
 
-    @pytest.mark.skip(reason="Phase C not yet implemented")
+    def test_basic_extraction(self):
+        words = [
+            MockWord("The", 0.0, 0.3),
+            MockWord("book", 0.3, 0.6),
+            MockWord("doesn't", 0.6, 0.9),
+            MockWord("update", 0.9, 1.2),
+            MockWord("here", 1.2, 1.5),
+            MockWord("Did", 1.6, 1.9),
+            MockWord("they", 1.9, 2.2),
+        ]
+        model = self._mock_whisper_model(words)
+        audio = _make_audio(duration=3.0)
+        config = {"min_extracted_duration": 0.2, "pad_before_ms": 30, "pad_after_ms": 50}
+
+        with patch("generate_tts._get_whisper_model", return_value=model):
+            result = _extract_target_with_whisper(
+                audio, SR, "The book doesn't update here", "Did they?", config
+            )
+
+        assert result is not None
+        expected_dur = (2.2 + 0.05) - (1.6 - 0.03)
+        actual_dur = len(result) / SR
+        assert abs(actual_dur - expected_dur) < 0.02
+
     def test_too_short_returns_none(self):
-        pass
+        words = [
+            MockWord("Context", 0.0, 0.5),
+            MockWord("word", 0.5, 0.8),
+            MockWord("Hi", 0.85, 0.9),
+        ]
+        model = self._mock_whisper_model(words)
+        audio = _make_audio(duration=1.0)
+        config = {"min_extracted_duration": 0.3, "pad_before_ms": 0, "pad_after_ms": 0}
+
+        with patch("generate_tts._get_whisper_model", return_value=model):
+            result = _extract_target_with_whisper(
+                audio, SR, "Context word", "Hi", config
+            )
+        assert result is None
+
+    def test_word_count_mismatch_returns_none(self):
+        words = [MockWord("Something", 0.0, 0.5), MockWord("else", 0.5, 1.0)]
+        model = self._mock_whisper_model(words)
+        audio = _make_audio(duration=1.5)
+        config = {"min_extracted_duration": 0.2, "pad_before_ms": 30, "pad_after_ms": 50}
+
+        with patch("generate_tts._get_whisper_model", return_value=model):
+            result = _extract_target_with_whisper(
+                audio, SR, "Three word context", "Target", config
+            )
+        assert result is None
+
+
+class TestGenerateWithContextEmbedding:
+    def test_success_returns_extracted_audio(self):
+        class MockAdapter:
+            name = "mock"
+            def generate(self, text, voice_ref, ref_text=None, language=None, **kw):
+                return _make_audio(3.0), SR
+
+        words = [
+            MockWord("Context", 0.0, 0.4),
+            MockWord("sentence", 0.4, 0.8),
+            MockWord("here", 0.8, 1.2),
+            MockWord("Did", 1.5, 1.8),
+            MockWord("they", 1.8, 2.2),
+        ]
+        mock_model = MagicMock()
+        mock_model.transcribe.return_value = (iter([MockSegment(words)]), {})
+
+        embed_config = {"min_extracted_duration": 0.2, "pad_before_ms": 30, "pad_after_ms": 50}
+        tts_config = {"temperature": 0.7, "repetition_penalty": 1.2}
+        retry_config = {"max_duration_per_word": 0.6, "retry_count": 3}
+
+        with patch("generate_tts._get_whisper_model", return_value=mock_model):
+            audio, sr = _generate_with_context_embedding(
+                MockAdapter(), "Did they?", "voice.mp3", "ref text",
+                "en", tts_config, retry_config,
+                "Context sentence here", embed_config,
+            )
+
+        assert audio is not None
+        assert sr == SR
+
+    def test_extraction_failure_returns_none(self):
+        class MockAdapter:
+            name = "mock"
+            def generate(self, text, voice_ref, ref_text=None, language=None, **kw):
+                return _make_audio(2.0), SR
+
+        words = [MockWord("garbled", 0.0, 0.5)]
+        mock_model = MagicMock()
+        mock_model.transcribe.return_value = (iter([MockSegment(words)]), {})
+
+        embed_config = {"min_extracted_duration": 0.2, "pad_before_ms": 30, "pad_after_ms": 50}
+        tts_config = {"temperature": 0.7, "repetition_penalty": 1.2}
+        retry_config = {"max_duration_per_word": 0.6, "retry_count": 3}
+
+        with patch("generate_tts._get_whisper_model", return_value=mock_model):
+            audio, sr = _generate_with_context_embedding(
+                MockAdapter(), "Did they?", "voice.mp3", "ref text",
+                "en", tts_config, retry_config,
+                "Context sentence here", embed_config,
+            )
+
+        assert audio is None

@@ -84,6 +84,178 @@ def _score_voice_similarity(audio, sr, voice_ref_path):
         return None
 
 
+# ---------------------------------------------------------------------------
+# Context-embedding for short lines
+# ---------------------------------------------------------------------------
+
+_whisper_model_cache = {}
+
+
+def _get_whisper_model(model_size="base"):
+    """Get or load a cached faster-whisper model for word-timestamp extraction."""
+    if model_size not in _whisper_model_cache:
+        try:
+            from faster_whisper import WhisperModel
+            device = "cuda"
+            try:
+                import torch
+                if not torch.cuda.is_available():
+                    device = "cpu"
+            except ImportError:
+                device = "cpu"
+            compute_type = "float16" if device == "cuda" else "int8"
+            _whisper_model_cache[model_size] = WhisperModel(
+                model_size, device=device, compute_type=compute_type
+            )
+        except ImportError:
+            return None
+    return _whisper_model_cache.get(model_size)
+
+
+def _find_same_speaker_context(manifest, current_hash, speaker, max_words=15):
+    """Find the previous line from the same speaker in manifest order.
+
+    Walks backwards from current_hash, skipping pauses and backchannels.
+    Stops at section_break boundaries (don't cross sections).
+
+    Returns the text (last max_words words) or None.
+    """
+    order = manifest.get("order", [])
+    lines = manifest.get("lines", {})
+
+    # Find current position in order
+    current_idx = None
+    for i, entry in enumerate(order):
+        if entry.get("type") == "line" and entry.get("hash") == current_hash:
+            current_idx = i
+            break
+
+    if current_idx is None or current_idx == 0:
+        return None
+
+    # Walk backwards
+    for i in range(current_idx - 1, -1, -1):
+        entry = order[i]
+        if entry.get("type") == "section_break":
+            return None  # don't cross section boundaries
+        if entry.get("type") == "line":
+            prev_hash = entry["hash"]
+            prev_info = lines.get(prev_hash, {})
+            if prev_info.get("speaker", "").lower() == speaker.lower():
+                text = prev_info.get("text", "")
+                words = text.split()
+                if len(words) > max_words:
+                    words = words[-max_words:]
+                return " ".join(words)
+
+    return None
+
+
+def _extract_target_with_whisper(audio, sr, context_text, target_text, config):
+    """Extract the target portion from combined context+target audio.
+
+    Uses faster-whisper word-level timestamps to find where the target
+    text begins (after the context words), then slices with padding.
+
+    Returns extracted audio array, or None if extraction fails.
+    """
+    import tempfile
+
+    model = _get_whisper_model(config.get("whisper_model", "base"))
+    if model is None:
+        return None
+
+    min_duration = config.get("min_extracted_duration", 0.2)
+    pad_before = config.get("pad_before_ms", 30) / 1000
+    pad_after = config.get("pad_after_ms", 50) / 1000
+
+    # Count context words to find the boundary
+    context_word_count = len(context_text.split())
+
+    try:
+        # Write to temp file (faster-whisper needs a file path)
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+            sf.write(f.name, audio, sr)
+            temp_path = f.name
+
+        segments, _ = model.transcribe(temp_path, language="en",
+                                        word_timestamps=True)
+
+        # Collect all words with timestamps
+        words = []
+        for segment in segments:
+            if hasattr(segment, "words") and segment.words:
+                for w in segment.words:
+                    words.append((w.word.strip(), w.start, w.end))
+
+        # Find boundary: target starts after context_word_count words
+        if len(words) <= context_word_count:
+            # Whisper didn't transcribe enough words — alignment failed
+            return None
+
+        # Target starts at this word
+        target_start_word = words[context_word_count]
+        target_end_word = words[-1]
+
+        start_time = max(0, target_start_word[1] - pad_before)
+        end_time = min(len(audio) / sr, target_end_word[2] + pad_after)
+
+        # Slice audio
+        start_sample = int(start_time * sr)
+        end_sample = int(end_time * sr)
+        extracted = audio[start_sample:end_sample]
+
+        # Validate duration
+        extracted_dur = len(extracted) / sr
+        if extracted_dur < min_duration:
+            return None
+
+        return extracted.astype(np.float32)
+
+    except Exception as e:
+        logger.debug("Whisper extraction failed: %s", e)
+        return None
+    finally:
+        try:
+            Path(temp_path).unlink(missing_ok=True)
+        except Exception:
+            pass
+
+
+def _generate_with_context_embedding(adapter, text, voice_ref, ref_text,
+                                      language, tts_config, retry_config,
+                                      context_text, embed_config):
+    """Generate context+target as one utterance, extract target via Whisper.
+
+    The context gives the TTS model prosodic runway to settle into the
+    voice before the short target text. Whisper word timestamps locate
+    the boundary for surgical extraction.
+
+    Returns (audio, sr) or (None, None) on failure.
+    """
+    separator = " ... "
+    combined_text = f"{context_text}{separator}{text}"
+
+    # Generate the combined utterance
+    audio, sr, _ = _generate_with_guard(
+        adapter, combined_text, voice_ref, ref_text, language,
+        tts_config, retry_config,
+    )
+
+    if audio is None:
+        return None, None
+
+    # Extract just the target portion
+    extracted = _extract_target_with_whisper(
+        audio, sr, context_text, text, embed_config
+    )
+
+    if extracted is None:
+        return None, None
+
+    return extracted, sr
+
+
 def _is_hallucinated(audio, sr, text, max_per_word=0.6):
     """Check if generated audio is unreasonably long or silent (hallucination)."""
     duration = len(audio) / sr
@@ -507,32 +679,53 @@ def generate_missing(manifest, cfg, dry_run=False):
                             line_tts_config, retry_config, target_sr,
                         )
                     else:
-                        # Multi-attempt for short lines: generate several
-                        # times and pick the best voice match (resemblyzer).
-                        # Falls back to longest duration if resemblyzer unavailable.
                         word_count = len(info["text"].split())
-                        short_attempts = tts_config.get("short_line_attempts", 3) if word_count <= 4 else 1
+                        embed_cfg = tts_config.get("context_embedding", {})
+                        embed_enabled = embed_cfg.get("enabled", True)
+                        max_wc = embed_cfg.get("max_word_count", 4)
+                        short_attempts = tts_config.get("short_line_attempts", 3)
 
-                        best_audio, best_sr, best_score = None, None, -1.0
-                        for attempt_i in range(short_attempts):
-                            a, s, _ = _generate_with_guard(
-                                adapter, info["text"], voice_ref, ref_text, language,
-                                line_tts_config, retry_config,
+                        audio, sr = None, None
+
+                        # 1. Try context-embedding for short lines
+                        if word_count <= max_wc and embed_enabled:
+                            context = _find_same_speaker_context(
+                                manifest, h, speaker,
+                                max_words=embed_cfg.get("context_max_words", 15),
                             )
-                            if a is not None:
-                                dur = len(a) / s
-                                max_dur = estimate_max_duration(info["text"])
-                                if dur <= max_dur:
-                                    # Score by voice similarity; fall back to duration
-                                    score = _score_voice_similarity(a, s, voice_ref)
-                                    if score is None:
-                                        score = dur / max_dur  # normalize to 0-1 range
-                                    if score > best_score:
-                                        best_audio, best_sr, best_score = a, s, score
-                                        if short_attempts > 1:
-                                            logger.info("    attempt %d/%d: %.1fs score=%.2f (best)",
-                                                        attempt_i + 1, short_attempts, dur, score)
-                        audio, sr = best_audio, best_sr
+                            if context:
+                                audio, sr = _generate_with_context_embedding(
+                                    adapter, info["text"], voice_ref, ref_text,
+                                    language, line_tts_config, retry_config,
+                                    context, embed_cfg,
+                                )
+                                if audio is not None:
+                                    score = _score_voice_similarity(audio, sr, voice_ref)
+                                    logger.info("    context-embed: %.1fs (score=%.2f)",
+                                                len(audio) / sr, score or 0)
+
+                        # 2. Fallback: multi-attempt with resemblyzer scoring
+                        if audio is None:
+                            attempts = short_attempts if word_count <= max_wc else 1
+                            best_audio, best_sr, best_score = None, None, -1.0
+                            for attempt_i in range(attempts):
+                                a, s, _ = _generate_with_guard(
+                                    adapter, info["text"], voice_ref, ref_text,
+                                    language, line_tts_config, retry_config,
+                                )
+                                if a is not None:
+                                    dur = len(a) / s
+                                    max_dur = estimate_max_duration(info["text"])
+                                    if dur <= max_dur:
+                                        score = _score_voice_similarity(a, s, voice_ref)
+                                        if score is None:
+                                            score = dur / max_dur
+                                        if score > best_score:
+                                            best_audio, best_sr, best_score = a, s, score
+                                            if attempts > 1:
+                                                logger.info("    attempt %d/%d: %.1fs score=%.2f (best)",
+                                                            attempt_i + 1, attempts, dur, score)
+                            audio, sr = best_audio, best_sr
 
                     used_engine = engine_name
                     if audio is None:
