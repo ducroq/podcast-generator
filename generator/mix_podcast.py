@@ -119,7 +119,13 @@ def load_bc_clips(cfg, target_sr):
     return bc_clips
 
 
-_BC_TYPE_FALLBACK = {"huh": "breath", "hmm": "breath", "gasp": "breath"}
+_BC_TYPE_FALLBACK = {
+    "huh": "thinking",
+    "hmm": "thinking",
+    "gasp": "outbreath",
+    "sigh": "outbreath",
+    "breath": "outbreath",
+}
 
 
 def _pick_bc_clip(bc_clips, reactor, bc_type, rng):
