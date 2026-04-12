@@ -270,9 +270,10 @@ def _extract_target_with_whisper(audio, sr, prefix_text, target_text, config,
             # or we'll bleed into the suffix which has continuous energy)
             suffix_start_idx = best_start_idx + target_word_count
             if suffix_start_idx < len(words):
-                # Cap at the midpoint between target end and suffix start
+                # Take 80% of the gap between target end and suffix start
+                # (50% was too tight — cut off final consonant releases)
                 suffix_start_time = words[suffix_start_idx][1]
-                end_time = whisper_end + min(pad_after, (suffix_start_time - whisper_end) * 0.5)
+                end_time = whisper_end + min(pad_after, (suffix_start_time - whisper_end) * 0.8)
             else:
                 end_time = whisper_end + pad_after
         else:

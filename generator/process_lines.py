@@ -380,9 +380,10 @@ def process_one(audio, sr, volume_db, room_ir, processing_cfg, reverb_mix=0.02):
     # to avoid eating final consonants ("they", "Yeah")
     clip_dur = len(audio) / sr
     if clip_dur < 0.5:
-        # Ultra-short clips: 3ms micro-fade only (click suppression)
-        fade_in = int(sr * 0.003)
-        fade_out = int(sr * 0.003)
+        # Ultra-short clips: 5ms symmetric fade (compromise between
+        # onset blip suppression and tail preservation)
+        fade_in = int(sr * 0.005)
+        fade_out = int(sr * 0.005)
     else:
         # Normal clips: cap tail to 5% of clip length
         fade_out = min(fade_out, len(audio) // 20)
