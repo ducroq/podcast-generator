@@ -82,12 +82,14 @@ class VoiceBank:
         Checks session best first (current generation run), then persisted index.
         Returns None if no dynamic reference available.
         """
-        # Session best (not yet saved to disk — use if available)
+        # Session best (not yet saved to disk — write only when it changes)
         session = self._session_best.get(speaker)
         if session:
-            # Write to temp location so adapter can read it
             temp_path = self.bank_dir / f"{speaker}_session_best.wav"
-            sf.write(str(temp_path), session["audio"], session["sr"])
+            # Only write if the file doesn't exist or score improved since last write
+            if not temp_path.exists() or session.get("_written_score") != session["score"]:
+                sf.write(str(temp_path), session["audio"], session["sr"])
+                session["_written_score"] = session["score"]
             return temp_path, session["text"]
 
         # Persisted best from previous episodes

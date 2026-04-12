@@ -46,6 +46,8 @@ def estimate_max_duration(text, max_per_word=0.6, floor=10.0):
 # Voice similarity scoring (automated "director")
 # ---------------------------------------------------------------------------
 
+# NOTE: Module-level singleton — not thread-safe. The generation pipeline
+# is single-threaded; if parallelized in future, protect with threading.Lock.
 _resemblyzer_encoder = None
 
 
@@ -172,11 +174,12 @@ def _extract_target_with_whisper(audio, sr, context_text, target_text, config):
     # Count context words to find the boundary
     context_word_count = len(context_text.split())
 
+    temp_path = None
     try:
         # Write to temp file (faster-whisper needs a file path)
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
-            sf.write(f.name, audio, sr)
             temp_path = f.name
+            sf.write(f.name, audio, sr)
 
         segments, _ = model.transcribe(temp_path, language="en",
                                         word_timestamps=True)
@@ -216,10 +219,11 @@ def _extract_target_with_whisper(audio, sr, context_text, target_text, config):
         logger.debug("Whisper extraction failed: %s", e)
         return None
     finally:
-        try:
-            Path(temp_path).unlink(missing_ok=True)
-        except Exception:
-            pass
+        if temp_path:
+            try:
+                Path(temp_path).unlink(missing_ok=True)
+            except Exception:
+                pass
 
 
 def _generate_with_context_embedding(adapter, text, voice_ref, ref_text,
@@ -243,6 +247,7 @@ def _generate_with_context_embedding(adapter, text, voice_ref, ref_text,
     )
 
     if audio is None:
+        logger.info("    context-embed: generation failed (hallucination guard)")
         return None, None
 
     # Extract just the target portion
@@ -251,6 +256,7 @@ def _generate_with_context_embedding(adapter, text, voice_ref, ref_text,
     )
 
     if extracted is None:
+        logger.info("    context-embed: Whisper extraction failed, falling back")
         return None, None
 
     return extracted, sr
@@ -759,6 +765,11 @@ def generate_missing(manifest, cfg, dry_run=False):
                                     temperature=retry_temp,
                                     repetition_penalty=line_tts_config.get("repetition_penalty", 1.2),
                                 )
+                                # Guard against hallucination in onset retry
+                                hallucinated, _, _ = _is_hallucinated(
+                                    audio2, sr2, info["text"], max_per_word)
+                                if hallucinated:
+                                    continue
                                 audio2 = _resample_if_needed(audio2, sr2, target_sr)
                                 onset2 = check_onset_quality(audio2, target_sr)
                                 if onset2["clean"] or onset2["metrics"]["attack_rms"] < onset["metrics"]["attack_rms"]:

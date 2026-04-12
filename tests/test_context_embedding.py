@@ -146,23 +146,6 @@ class MockSegment:
         self.end = words[-1].end if words else 0
 
 
-class MockWord:
-    """Mock faster-whisper word object."""
-    def __init__(self, word, start, end):
-        self.word = word
-        self.start = start
-        self.end = end
-
-
-class MockSegment:
-    """Mock faster-whisper segment with word timestamps."""
-    def __init__(self, words):
-        self.words = words
-        self.text = " ".join(w.word for w in words)
-        self.start = words[0].start if words else 0
-        self.end = words[-1].end if words else 0
-
-
 class TestFindSameSpeakerContext:
     def test_finds_previous_same_speaker(self):
         manifest = _make_manifest([

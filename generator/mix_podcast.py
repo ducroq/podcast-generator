@@ -134,6 +134,7 @@ def _pick_bc_clip(bc_clips, reactor, bc_type, rng):
         if fallback:
             clips = bc_clips.get(fallback, {}).get(reactor, [])
     if not clips:
+        logger.debug("No BC clip for [react: %s %s] (no fallback)", reactor, bc_type)
         return None
     return clips[int(rng.integers(len(clips)))]
 
