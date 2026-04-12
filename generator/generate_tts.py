@@ -42,6 +42,48 @@ def estimate_max_duration(text, max_per_word=0.6, floor=10.0):
     return max(floor, words * max_per_word)
 
 
+# ---------------------------------------------------------------------------
+# Voice similarity scoring (automated "director")
+# ---------------------------------------------------------------------------
+
+_resemblyzer_encoder = None
+
+
+def _score_voice_similarity(audio, sr, voice_ref_path):
+    """Score how similar generated audio is to the reference voice.
+
+    Uses resemblyzer d-vector cosine similarity. Returns float 0.0-1.0,
+    or None if resemblyzer is unavailable or audio is too short.
+    """
+    global _resemblyzer_encoder
+    try:
+        from resemblyzer import VoiceEncoder, preprocess_wav
+    except ImportError:
+        return None
+
+    # Too short for reliable embedding (~1600 samples at 16kHz)
+    if len(audio) < sr * 0.1:
+        return None
+
+    try:
+        if _resemblyzer_encoder is None:
+            _resemblyzer_encoder = VoiceEncoder("cpu")
+
+        wav_gen = preprocess_wav(audio, source_sr=sr)
+        wav_ref = preprocess_wav(str(voice_ref_path))
+        if len(wav_gen) < 1600 or len(wav_ref) < 1600:
+            return None
+
+        embed_gen = _resemblyzer_encoder.embed_utterance(wav_gen)
+        embed_ref = _resemblyzer_encoder.embed_utterance(wav_ref)
+        norm = np.linalg.norm(embed_gen) * np.linalg.norm(embed_ref)
+        if norm < 1e-10:
+            return None
+        return float(np.dot(embed_gen, embed_ref) / norm)
+    except Exception:
+        return None
+
+
 def _is_hallucinated(audio, sr, text, max_per_word=0.6):
     """Check if generated audio is unreasonably long or silent (hallucination)."""
     duration = len(audio) / sr
@@ -444,12 +486,12 @@ def generate_missing(manifest, cfg, dry_run=False):
                         )
                     else:
                         # Multi-attempt for short lines: generate several
-                        # times and pick the longest valid attempt (gives
-                        # the voice more prosodic runway to settle)
+                        # times and pick the best voice match (resemblyzer).
+                        # Falls back to longest duration if resemblyzer unavailable.
                         word_count = len(info["text"].split())
                         short_attempts = tts_config.get("short_line_attempts", 3) if word_count <= 4 else 1
 
-                        best_audio, best_sr, best_dur = None, None, 0
+                        best_audio, best_sr, best_score = None, None, -1.0
                         for attempt_i in range(short_attempts):
                             a, s, _ = _generate_with_guard(
                                 adapter, info["text"], voice_ref, ref_text, language,
@@ -458,12 +500,16 @@ def generate_missing(manifest, cfg, dry_run=False):
                             if a is not None:
                                 dur = len(a) / s
                                 max_dur = estimate_max_duration(info["text"])
-                                if dur <= max_dur and dur > best_dur:
-                                    best_audio, best_sr, best_dur = a, s, dur
-                                    if short_attempts > 1:
-                                        logger.info("    attempt %d/%d: %.1fs%s",
-                                                    attempt_i + 1, short_attempts, dur,
-                                                    " (best)" if dur == best_dur else "")
+                                if dur <= max_dur:
+                                    # Score by voice similarity; fall back to duration
+                                    score = _score_voice_similarity(a, s, voice_ref)
+                                    if score is None:
+                                        score = dur / max_dur  # normalize to 0-1 range
+                                    if score > best_score:
+                                        best_audio, best_sr, best_score = a, s, score
+                                        if short_attempts > 1:
+                                            logger.info("    attempt %d/%d: %.1fs score=%.2f (best)",
+                                                        attempt_i + 1, short_attempts, dur, score)
                         audio, sr = best_audio, best_sr
 
                     used_engine = engine_name
@@ -512,7 +558,16 @@ def generate_missing(manifest, cfg, dry_run=False):
                         info["duration"] = round(duration, 2)
                         info["engine"] = used_engine
                         generated += 1
-                        logger.info("  -> %s (%.1fs, %s)", info["file"], duration, info["engine"])
+
+                        # Score voice similarity for quality tracking
+                        static_ref = cfg.voice_ref_path(speaker)
+                        voice_score = _score_voice_similarity(audio, target_sr, static_ref)
+                        if voice_score is not None:
+                            info["voice_score"] = round(voice_score, 3)
+
+                        logger.info("  -> %s (%.1fs, %s, score=%.2f)",
+                                    info["file"], duration, info["engine"],
+                                    voice_score or 0)
                     else:
                         info["status"] = STATUS_FAILED
                         info["engine"] = None
