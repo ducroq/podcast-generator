@@ -794,9 +794,10 @@ def generate_missing(manifest, cfg, dry_run=False):
 
                         audio, sr = None, None
 
-                        # 1. Try context-sandwich (prefix + target + suffix)
+                        # 1. Try context-sandwich for short lines (≤max_wc words)
                         #    Onset artifacts land in prefix, tail in suffix.
-                        if embed_enabled:
+                        #    Long lines don't need it — Qwen generates them fine.
+                        if embed_enabled and word_count <= max_wc:
                             ctx_max = embed_cfg.get("context_max_words", 15)
                             prefix = _find_same_speaker_context(
                                 manifest, h, speaker, max_words=ctx_max)
