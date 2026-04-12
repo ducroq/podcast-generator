@@ -10,6 +10,7 @@ import soundfile as sf
 
 from generate_tts import (
     _score_voice_similarity,
+    _find_same_speaker_suffix,
     _find_same_speaker_context,
     _extract_target_with_whisper,
     _generate_with_context_embedding,
@@ -111,17 +112,133 @@ class TestScoreVoiceSimilarity:
 
 
 class TestVoiceBank:
-    @pytest.mark.skip(reason="Phase B not yet implemented")
-    def test_update_and_best(self):
-        pass
+    def test_update_and_best(self, tmp_path):
+        from voice_bank import VoiceBank
+        bank = VoiceBank(tmp_path, min_score=0.85, min_duration=1.5)
+        audio = _make_audio(duration=2.0)
 
-    @pytest.mark.skip(reason="Phase B not yet implemented")
-    def test_persistence(self):
-        pass
+        bank.update("alex", audio, SR, score=0.90, text="Hello world.",
+                     episode="ep01", line_hash="abc123")
+        result = bank.best_ref("alex")
+        assert result is not None
+        ref_path, ref_text = result
+        assert ref_path.exists()
+        assert ref_text == "Hello world."
 
-    @pytest.mark.skip(reason="Phase B not yet implemented")
-    def test_min_score_filter(self):
-        pass
+    def test_higher_score_replaces(self, tmp_path):
+        from voice_bank import VoiceBank
+        bank = VoiceBank(tmp_path, min_score=0.85, min_duration=1.5)
+        audio = _make_audio(duration=2.0)
+
+        bank.update("alex", audio, SR, score=0.90, text="First.",
+                     episode="ep01", line_hash="a")
+        bank.update("alex", audio, SR, score=0.95, text="Better.",
+                     episode="ep01", line_hash="b")
+        _, text = bank.best_ref("alex")
+        assert text == "Better."
+
+    def test_lower_score_ignored(self, tmp_path):
+        from voice_bank import VoiceBank
+        bank = VoiceBank(tmp_path, min_score=0.85, min_duration=1.5)
+        audio = _make_audio(duration=2.0)
+
+        bank.update("alex", audio, SR, score=0.95, text="Best.",
+                     episode="ep01", line_hash="a")
+        bank.update("alex", audio, SR, score=0.88, text="Worse.",
+                     episode="ep01", line_hash="b")
+        _, text = bank.best_ref("alex")
+        assert text == "Best."
+
+    def test_persistence(self, tmp_path):
+        from voice_bank import VoiceBank
+        audio = _make_audio(duration=2.0)
+
+        bank1 = VoiceBank(tmp_path, min_score=0.80)
+        bank1.update("morgan", audio, SR, score=0.91, text="Persisted.",
+                      episode="ep01", line_hash="xyz")
+        saved = bank1.save()
+        assert saved == 1
+        assert (tmp_path / "voice_bank.json").exists()
+
+        # New instance reads persisted data
+        bank2 = VoiceBank(tmp_path, min_score=0.80)
+        result = bank2.best_ref("morgan")
+        assert result is not None
+        ref_path, ref_text = result
+        assert ref_path.exists()
+        assert ref_text == "Persisted."
+
+    def test_save_only_overwrites_when_better(self, tmp_path):
+        from voice_bank import VoiceBank
+        audio = _make_audio(duration=2.0)
+
+        bank1 = VoiceBank(tmp_path, min_score=0.80)
+        bank1.update("alex", audio, SR, score=0.95, text="Ep01 best.",
+                      episode="ep01", line_hash="a")
+        bank1.save()
+
+        # Second session with lower score — should NOT overwrite
+        bank2 = VoiceBank(tmp_path, min_score=0.80)
+        bank2.update("alex", audio, SR, score=0.88, text="Ep02 worse.",
+                      episode="ep02", line_hash="b")
+        bank2.save()
+
+        # Third session reads — should still have ep01
+        bank3 = VoiceBank(tmp_path, min_score=0.80)
+        _, text = bank3.best_ref("alex")
+        assert text == "Ep01 best."
+
+    def test_min_score_filter(self, tmp_path):
+        from voice_bank import VoiceBank
+        bank = VoiceBank(tmp_path, min_score=0.85, min_duration=1.5)
+        audio_long = _make_audio(duration=2.0)
+        audio_short = _make_audio(duration=0.5)
+
+        # Score too low
+        bank.update("alex", audio_long, SR, score=0.80, text="Low score.",
+                     episode="ep01", line_hash="a")
+        assert bank.best_ref("alex") is None
+
+        # Duration too short
+        bank.update("alex", audio_short, SR, score=0.95, text="Short.",
+                     episode="ep01", line_hash="b")
+        assert bank.best_ref("alex") is None
+
+    def test_no_ref_returns_none(self, tmp_path):
+        from voice_bank import VoiceBank
+        bank = VoiceBank(tmp_path, min_score=0.85, min_duration=1.5)
+        assert bank.best_ref("unknown_speaker") is None
+
+    def test_best_ref_avoids_redundant_writes(self, tmp_path):
+        from voice_bank import VoiceBank
+        bank = VoiceBank(tmp_path, min_score=0.80, min_duration=1.5)
+        audio = _make_audio(duration=2.0)
+
+        bank.update("alex", audio, SR, score=0.90, text="Hello.",
+                     episode="ep01", line_hash="a")
+
+        # First call writes the file
+        ref_path, _ = bank.best_ref("alex")
+        mtime1 = ref_path.stat().st_mtime
+
+        # Second call with same score should NOT rewrite
+        import time; time.sleep(0.05)
+        bank.best_ref("alex")
+        mtime2 = ref_path.stat().st_mtime
+        assert mtime1 == mtime2
+
+    def test_save_cleans_temp_files(self, tmp_path):
+        from voice_bank import VoiceBank
+        bank = VoiceBank(tmp_path, min_score=0.80, min_duration=1.5)
+        audio = _make_audio(duration=2.0)
+
+        bank.update("alex", audio, SR, score=0.90, text="Hello.",
+                     episode="ep01", line_hash="a")
+        ref_path, _ = bank.best_ref("alex")
+        assert ref_path.exists()  # temp file exists before save
+
+        bank.save()
+        assert not ref_path.exists()  # temp cleaned up after save
 
 
 # ---------------------------------------------------------------------------
@@ -199,6 +316,56 @@ class TestFindSameSpeakerContext:
         assert result is None
 
 
+class TestFindSameSpeakerSuffix:
+    def test_finds_next_same_speaker(self):
+        manifest = _make_manifest([
+            ("alex", "First line."),
+            ("morgan", "Intervening."),
+            ("alex", "The later line from Alex."),
+        ])
+        first_hash = [h for h, i in manifest["lines"].items()
+                      if i["text"] == "First line."][0]
+        result = _find_same_speaker_suffix(manifest, first_hash, "alex")
+        assert result is not None
+        assert "later line" in result
+
+    def test_skips_different_speaker(self):
+        manifest = _make_manifest([
+            ("alex", "Only Alex."),
+            ("morgan", "Only Morgan after."),
+        ])
+        h = [h for h, i in manifest["lines"].items()
+             if i["text"] == "Only Alex."][0]
+        result = _find_same_speaker_suffix(manifest, h, "alex")
+        assert result is None
+
+    def test_stops_at_section_break(self):
+        manifest = _make_manifest([
+            ("alex", "Before break."),
+            "break",
+            ("alex", "After break."),
+        ])
+        h = [h for h, i in manifest["lines"].items()
+             if i["text"] == "Before break."][0]
+        result = _find_same_speaker_suffix(manifest, h, "alex")
+        assert result is None
+
+    def test_truncates_long_suffix(self):
+        long_text = " ".join(f"word{i}" for i in range(25))
+        manifest = _make_manifest([("alex", "Short."), ("alex", long_text)])
+        h = [h for h, i in manifest["lines"].items()
+             if i["text"] == "Short."][0]
+        result = _find_same_speaker_suffix(manifest, h, "alex", max_words=5)
+        assert result is not None
+        assert len(result.split()) == 5
+
+    def test_last_line_returns_none(self):
+        manifest = _make_manifest([("alex", "Only line.")])
+        h = list(manifest["lines"].keys())[0]
+        result = _find_same_speaker_suffix(manifest, h, "alex")
+        assert result is None
+
+
 class TestExtractTargetWithWhisper:
     def _mock_whisper_model(self, words):
         model = MagicMock()
@@ -257,6 +424,51 @@ class TestExtractTargetWithWhisper:
                 audio, SR, "Three word context", "Target", config
             )
         assert result is None
+
+    def test_sandwich_extraction_with_suffix(self):
+        """Extract target from prefix + target + suffix sandwich."""
+        words = [
+            MockWord("Context", 0.0, 0.4),     # prefix
+            MockWord("Did", 0.5, 0.8),          # target word 1
+            MockWord("they", 0.8, 1.1),         # target word 2
+            MockWord("Trailing", 1.3, 1.6),     # suffix
+        ]
+        model = self._mock_whisper_model(words)
+        audio = _make_audio(duration=2.0)
+        config = {"min_extracted_duration": 0.2, "pad_before_ms": 30, "pad_after_ms": 80}
+
+        with patch("generate_tts._get_whisper_model", return_value=model):
+            result = _extract_target_with_whisper(
+                audio, SR, "Context", "Did they", config, suffix_text="Trailing"
+            )
+
+        assert result is not None
+        actual_dur = len(result) / SR
+        # Should end at target word end (1.1) + pad (0.08), not at suffix (1.6)
+        assert actual_dur < 1.3
+        assert actual_dur > 0.2
+
+    def test_separator_drift_handled(self):
+        """Whisper transcribes '...' as a word — fuzzy matching finds target anyway."""
+        words = [
+            MockWord("Context", 0.0, 0.4),     # prefix
+            MockWord("...", 0.4, 0.5),          # separator became a word!
+            MockWord("Did", 0.6, 0.9),          # target word 1
+            MockWord("they", 0.9, 1.2),         # target word 2
+        ]
+        model = self._mock_whisper_model(words)
+        audio = _make_audio(duration=2.0)
+        config = {"min_extracted_duration": 0.2, "pad_before_ms": 30, "pad_after_ms": 80}
+
+        with patch("generate_tts._get_whisper_model", return_value=model):
+            result = _extract_target_with_whisper(
+                audio, SR, "Context", "Did they?", config
+            )
+
+        assert result is not None
+        # Should have found "Did" at 0.6s despite separator drift
+        actual_dur = len(result) / SR
+        assert actual_dur > 0.3
 
 
 class TestGenerateWithContextEmbedding:
