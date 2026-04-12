@@ -689,7 +689,7 @@ def generate_missing(manifest, cfg, dry_run=False):
                         embed_cfg = tts_config.get("context_embedding", {})
                         embed_enabled = embed_cfg.get("enabled", True)
                         max_wc = embed_cfg.get("max_word_count", 4)
-                        short_attempts = tts_config.get("short_line_attempts", 3)
+                        short_attempts = min(tts_config.get("short_line_attempts", 3), 10)
 
                         audio, sr = None, None
 

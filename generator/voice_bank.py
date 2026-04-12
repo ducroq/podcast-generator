@@ -15,6 +15,7 @@ Usage:
 
 import json
 import logging
+import re
 from pathlib import Path
 from typing import Optional, Tuple
 
@@ -22,6 +23,11 @@ import numpy as np
 import soundfile as sf
 
 logger = logging.getLogger(__name__)
+
+
+def _safe_filename(s):
+    """Sanitize a string for use as a filename component (no path traversal)."""
+    return re.sub(r"[^\w\-]", "_", s)
 
 
 class VoiceBank:
@@ -85,7 +91,7 @@ class VoiceBank:
         # Session best (not yet saved to disk — write only when it changes)
         session = self._session_best.get(speaker)
         if session:
-            temp_path = self.bank_dir / f"{speaker}_session_best.wav"
+            temp_path = self.bank_dir / f"{_safe_filename(speaker)}_session_best.wav"
             # Only write if the file doesn't exist or score improved since last write
             if not temp_path.exists() or session.get("_written_score") != session["score"]:
                 sf.write(str(temp_path), session["audio"], session["sr"])
@@ -126,7 +132,7 @@ class VoiceBank:
 
             if entry["score"] > persisted_score:
                 # Save the audio
-                filename = f"{speaker}_{entry['episode']}_best.wav"
+                filename = f"{_safe_filename(speaker)}_{_safe_filename(entry['episode'])}_best.wav"
                 wav_path = self.bank_dir / filename
                 sf.write(str(wav_path), entry["audio"], entry["sr"])
 
