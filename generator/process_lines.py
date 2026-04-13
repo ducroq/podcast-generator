@@ -356,11 +356,16 @@ def process_one(audio, sr, volume_db, room_ir, processing_cfg, reverb_mix=0.02):
         reversal_threshold=p.get("onset_reversal_threshold", 0.025),
         smooth_radius=p.get("onset_smooth_radius", 4),
     )
-    audio = lufs_normalize(
-        audio, sr,
-        target_lufs=p.get("target_lufs", -20.0),
-        target_rms=p.get("rms_target", 0.1),
-    )
+    # Normalization: disabled by default — Qwen produces consistent levels
+    # (-18 to -21 LUFS across speakers, 1-2 LUFS std). LUFS normalization
+    # was boosting quiet lines and causing distortion/clipping. Speaker
+    # volume offsets handle inter-speaker balance.
+    if p.get("normalize", False):
+        audio = lufs_normalize(
+            audio, sr,
+            target_lufs=p.get("target_lufs", -20.0),
+            target_rms=p.get("rms_target", 0.1),
+        )
     audio = apply_speaker_volume(audio, volume_db)
     if _HAS_PEDALBOARD and p.get("use_pedalboard_reverb", True):
         audio = apply_reverb_pedalboard(audio, sr, mix=reverb_mix,

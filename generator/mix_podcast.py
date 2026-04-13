@@ -265,6 +265,12 @@ def build_section(order_entries, manifest_lines, lines_dir, sr, rng,
                     logger.debug("Discarding BC cue before first line in section")
                 pending_bc = None
 
+            # Micro-fade at boundaries to prevent join clicks
+            fade_samples = min(int(sr * 0.002), len(audio) // 4)
+            if fade_samples > 1:
+                fade_out = np.linspace(1, 0, fade_samples, dtype=np.float32)
+                audio[-fade_samples:] *= fade_out
+
             parts.append(audio)
             last_line_idx = len(parts) - 1
             prev_line_dur = len(audio) / sr
