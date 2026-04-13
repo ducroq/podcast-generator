@@ -380,9 +380,9 @@ def process_one(audio, sr, volume_db, room_ir, processing_cfg, reverb_mix=0.02):
     # to avoid eating final consonants ("they", "Yeah")
     clip_dur = len(audio) / sr
     if clip_dur < 0.5:
-        # Ultra-short clips: 5ms symmetric fade (compromise between
-        # onset blip suppression and tail preservation)
-        fade_in = int(sr * 0.005)
+        # Ultra-short clips: 15ms fade-in (suppresses onset blips),
+        # 5ms fade-out (minimal tail impact)
+        fade_in = int(sr * 0.015)
         fade_out = int(sr * 0.005)
     else:
         # Normal clips: cap tail to 5% of clip length
@@ -400,7 +400,7 @@ def process_one(audio, sr, volume_db, room_ir, processing_cfg, reverb_mix=0.02):
 
     # Peak safety cap — prevent clipping after the full chain
     # (normalization + speaker volume + reverb can push peaks above 1.0)
-    peak_ceiling = p.get("peak_ceiling", 0.85)
+    peak_ceiling = p.get("peak_ceiling", 0.75)
     peak = np.max(np.abs(audio))
     if peak > peak_ceiling:
         audio = (audio * (peak_ceiling / peak)).astype(np.float32)
