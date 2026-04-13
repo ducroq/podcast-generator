@@ -811,11 +811,11 @@ def generate_missing(manifest, cfg, dry_run=False):
 
                         audio, sr = None, None
 
-                        # 1. Context-sandwich for short lines (≤max_wc words)
-                        #    Prefix: same-speaker previous line (if available — voice consistency + onset)
-                        #    Suffix: ALWAYS append filler "Hmm." (tail protection — Qwen
-                        #    cuts short lines mid-word without it)
-                        if embed_enabled and word_count <= max_wc:
+                        # 1. Context-sandwich for ALL lines
+                        #    Prefix: same-speaker previous line (absorbs onset clicks)
+                        #    Suffix: filler "Hmm." (absorbs Qwen tail cut-offs)
+                        #    Energy-minimum cut finds the natural gap between target and filler
+                        if embed_enabled:
                             ctx_max = embed_cfg.get("context_max_words", 15)
                             prefix = _find_same_speaker_context(
                                 manifest, h, speaker, max_words=ctx_max)
