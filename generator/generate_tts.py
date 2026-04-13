@@ -263,23 +263,39 @@ def _extract_target_with_whisper(audio, sr, prefix_text, target_text, config,
         # Start: pad before first target word
         start_time = max(0, target_start_word[1] - pad_before)
 
-        # End: depends on whether there's a suffix
+        # End: find the best cut point between target and filler/suffix
         whisper_end = target_end_word[2]
         if suffix_text:
-            # With suffix: use Whisper boundary + fixed pad (don't envelope-follow
-            # or we'll bleed into the suffix which has continuous energy)
+            # With suffix/filler: Whisper gives us end-of-target and start-of-filler.
+            # The natural cut point is the energy MINIMUM in the gap between them.
+            # This preserves consonant releases while avoiding filler bleed.
             suffix_start_idx = best_start_idx + target_word_count
             if suffix_start_idx < len(words):
-                # Take 80% of the gap between target end and suffix start
-                # (50% was too tight — cut off final consonant releases)
                 suffix_start_time = words[suffix_start_idx][1]
-                end_time = whisper_end + min(pad_after, (suffix_start_time - whisper_end) * 0.8)
+                gap_start = int(whisper_end * sr)
+                gap_end = int(suffix_start_time * sr)
+                gap_dur = (gap_end - gap_start) / sr
+
+                if gap_dur > 0.03:
+                    # Decent gap — find the energy minimum (natural cut point)
+                    window = max(1, int(sr * 0.005))  # 5ms windows
+                    best_cut = gap_start
+                    best_rms = float("inf")
+                    for i in range(gap_start, min(gap_end, len(audio) - window), window):
+                        rms = float(np.sqrt(np.mean(audio[i:i + window] ** 2)))
+                        if rms < best_rms:
+                            best_rms = rms
+                            best_cut = i
+                    end_time = (best_cut + window) / sr
+                else:
+                    # Tiny or no gap — Qwen ran words together.
+                    # Cut at the midpoint and rely on fade-out to smooth.
+                    end_time = whisper_end + gap_dur * 0.5 + 0.02
             else:
                 end_time = whisper_end + pad_after
         else:
             # No suffix: follow the audio envelope past Whisper's end timestamp
-            # until energy drops to silence. Captures consonant releases
-            # ("t" in "podcast", "s" in "sense").
+            # until energy drops to silence. Captures consonant releases.
             silence_threshold = 0.01
             scan_limit = min(whisper_end + 0.3, len(audio) / sr)
             scan_start = int(whisper_end * sr)
