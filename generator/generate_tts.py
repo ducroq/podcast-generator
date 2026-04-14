@@ -266,32 +266,42 @@ def _extract_target_with_whisper(audio, sr, prefix_text, target_text, config,
         # End: find the best cut point between target and filler/suffix
         whisper_end = target_end_word[2]
         if suffix_text:
-            # With suffix/filler: Whisper gives us end-of-target and start-of-filler.
-            # The natural cut point is the energy MINIMUM in the gap between them.
-            # This preserves consonant releases while avoiding filler bleed.
-            suffix_start_idx = best_start_idx + target_word_count
-            if suffix_start_idx < len(words):
-                suffix_start_time = words[suffix_start_idx][1]
-                gap_start = int(whisper_end * sr)
-                gap_end = int(suffix_start_time * sr)
-                gap_dur = (gap_end - gap_start) / sr
+            # With suffix/filler: find the last word of the filler ("Hmm.")
+            # and search backwards for the energy minimum. This avoids
+            # accidentally cutting inside the target text (which has many
+            # inter-word energy dips that confuse a forward search).
+            #
+            # Strategy: find where filler starts in Whisper output by
+            # looking for the LAST word(s). Then scan backwards from
+            # filler start to find the quietest point = sentence boundary.
+            filler_words = suffix_text.lower().split()
+            filler_start_time = None
+            # Search from the end of Whisper words for the filler
+            for i in range(len(words) - 1, best_start_idx + 1, -1):
+                w = words[i][0].lower().strip(".,;:!?\"'")
+                if any(w.startswith(fw[:3]) for fw in filler_words):
+                    filler_start_time = words[i][1]
+                    break
 
-                if gap_dur > 0.03:
-                    # Decent gap — find the energy minimum (natural cut point)
-                    window = max(1, int(sr * 0.005))  # 5ms windows
-                    best_cut = gap_start
-                    best_rms = float("inf")
-                    for i in range(gap_start, min(gap_end, len(audio) - window), window):
-                        rms = float(np.sqrt(np.mean(audio[i:i + window] ** 2)))
-                        if rms < best_rms:
-                            best_rms = rms
-                            best_cut = i
-                    end_time = (best_cut + window) / sr
-                else:
-                    # Tiny or no gap — Qwen ran words together.
-                    # Cut at the midpoint and rely on fade-out to smooth.
-                    end_time = whisper_end + gap_dur * 0.5 + 0.02
+            if filler_start_time is not None:
+                # Scan backwards from filler start to find the energy minimum
+                scan_start = max(int((filler_start_time - 0.5) * sr), 0)
+                scan_end = int(filler_start_time * sr)
+                window = max(1, int(sr * 0.005))  # 5ms windows
+
+                best_cut = scan_end  # default: cut at filler start
+                best_rms = float("inf")
+                for i in range(scan_end - window, max(scan_start, 0), -window):
+                    rms = float(np.sqrt(np.mean(audio[i:i + window] ** 2)))
+                    if rms < best_rms:
+                        best_rms = rms
+                        best_cut = i
+                    elif rms > best_rms * 3 and best_rms < 0.02:
+                        # Energy rising again = we've passed the gap
+                        break
+                end_time = (best_cut + window) / sr
             else:
+                # Couldn't find filler in Whisper output — use target end + pad
                 end_time = whisper_end + pad_after
         else:
             # No suffix: follow the audio envelope past Whisper's end timestamp
